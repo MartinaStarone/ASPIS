@@ -264,7 +264,7 @@ void RASM::createCFGVerificationBB (  BasicBlock &BB,
        * 3) more than three successors -> we have a switch: impossible since we lower switches in a previous pass
       */
       int numSuccessors = Terminator->getNumSuccessors();
-      if (numSuccessors>1 and Terminator->isExceptionalTerminator()){
+      if (numSuccessors>1 and Terminator->isSpecialTerminator()){
         numSuccessors=1;
       }
       switch (numSuccessors)
