@@ -65,15 +65,15 @@ title_msg () {
 
 perform_platform_checks() {
     if [ ! -f $1 ]; then
-        error_msg "\nCommand clang not found. Expected path: ${1}. Please check --llvm_bin parameter."
+        error_msg "\nCommand clang not found. Expected path: ${1}. Please check --llvm-bin parameter."
     fi
 
     if [ ! -f $2 ]; then
-        error_msg "\nCommand opt not found. Expected path: ${2}. Please check --llvm_bin parameter."
+        error_msg "\nCommand opt not found. Expected path: ${2}. Please check --llvm-bin parameter."
     fi
 
     if [ ! -f $3 ]; then
-        error_msg "\nCommand llvm-link not found. Expected path: ${3}. Please check --llvm_bin parameter."
+        error_msg "\nCommand llvm-link not found. Expected path: ${3}. Please check --llvm-bin parameter."
     fi
     
 }
@@ -327,8 +327,8 @@ run_aspis() {
         exe $OPT --passes="strip" $build_dir/out.ll -o $build_dir/out.ll
         echo "  Debug mode disabled, stripped debug symbols."
     fi
-    #TODO: decomment the following
-        #exe $OPT --passes="lowerswitch" $build_dir/out.ll -o $build_dir/out.ll
+    
+    exe $OPT --passes="lower-switch" $build_dir/out.ll -o $build_dir/out.ll
 
     ## FuncRetToRef
     if [[ dup -ne -1 ]]; then
