@@ -156,7 +156,7 @@ class RASM : public PassInfoMixin<RASM> {
 
 };
 
-class RacfedTry : public PassInfoMixin<RacfedTry> {
+class RACFED : public PassInfoMixin<RACFED> {
 private:
   std::map<Value *, StringRef> FuncAnnotations;
   std::map<BasicBlock *, BasicBlock *> NewBBs;
@@ -188,39 +188,6 @@ public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &);
 
   static bool isRequired() { return true; }
-};
-class RacfedTry : public PassInfoMixin<RacfedTry> {
-private:
-    std::map<Value *, StringRef> FuncAnnotations;
-    std::map<BasicBlock *, BasicBlock *> NewBBs;
-
-
-#if (LOG_COMPILED_FUNCS == 1)
-    std::set<Function *> CompiledFuncs;
-#endif
-
-    void initializeBlocksSignatures(Module &Md,
-                                    std::map<BasicBlock *, int> &RandomNumberBBs,
-                                    std::map<BasicBlock *, int> &SubRanPrevVals,
-                                    std::map<BasicBlock *, int> &SumIntraInstruction);
-
-    void originalInstruction(BasicBlock &BB,std::vector<Instruction*> OrigInstructions);
-
-    void splitBBsAtCalls(Module &Md);
-    int countOriginalInstructions(BasicBlock &BB);
-    CallBase *isCallBB(BasicBlock &BB);
-    void initializeEntryBlocksMap(Module &Md);
-    Value *getCondition(Instruction &I);
-    void createCFGVerificationBB(BasicBlock &BB,
-                                 std::map<BasicBlock *, int> &RandomNumberBBs,
-                                 std::map<BasicBlock *, int> &SubRanPrevVals,
-                                 Value &RuntimeSig, Value &RetSig,
-                                 BasicBlock &ErrBB);
-
-public:
-    PreservedAnalyses run(Module &M, ModuleAnalysisManager &);
-
-    static bool isRequired() { return true; }
 };
 
 #endif

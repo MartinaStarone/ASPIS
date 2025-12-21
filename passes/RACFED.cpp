@@ -1,5 +1,5 @@
 #include "ASPIS.h"
-#include "Utilis.h"
+#include "Utils/Utils.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
@@ -25,7 +25,7 @@ bool unicity(int candidate,
   return false;
 }
 
-void RacfedTry::initializeBlocksSignatures(
+void RACFED::initializeBlocksSignatures(
     Module &Md, std::map<BasicBlock *, int> &RandomNumberBBs,
     std::map<BasicBlock *, int> &SubRanPrevVals,
     std::map<BasicBlock *, int> &SumIntraInstruction) {
@@ -74,7 +74,7 @@ int countOriginalInstructions(BasicBlock &BB) {
   return count;
 }
 
-void RacfedTry::splitBBsAtCalls(Module &Md) {
+void RACFED::splitBBsAtCalls(Module &Md) {
   for (Function &Fn : Md) {
     if (shouldCompile(Fn, FuncAnnotations)) {
       std::vector<CallBase *> CallInsts;
@@ -95,7 +95,7 @@ void RacfedTry::splitBBsAtCalls(Module &Md) {
   }
 }
 
-CallBase *RacfedTry::isCallBB(BasicBlock &BB) {
+CallBase *RACFED::isCallBB(BasicBlock &BB) {
   for (Instruction &I : BB) {
     if (isa<CallBase>(&I) && !isa<IntrinsicInst>(&I)) {
       return cast<CallBase>(&I);
@@ -104,12 +104,12 @@ CallBase *RacfedTry::isCallBB(BasicBlock &BB) {
   return nullptr;
 }
 
-void RacfedTry::initializeEntryBlocksMap(Module &Md) {
+void RACFED::initializeEntryBlocksMap(Module &Md) {
   // Implementation for INTRA_FUNCTION_CFC == 1, left empty for now as we
   // default to 0
 }
 
-Value *RacfedTry::getCondition(Instruction &I) {
+Value *RACFED::getCondition(Instruction &I) {
   // Helper to get condition from terminator if it's a branch
   if (BranchInst *BI = dyn_cast<BranchInst>(&I)) {
     if (BI->isConditional()) {
@@ -119,7 +119,7 @@ Value *RacfedTry::getCondition(Instruction &I) {
   return nullptr;
 }
 
-void RacfedTry::createCFGVerificationBB(
+void RACFED::createCFGVerificationBB(
     BasicBlock &BB, std::map<BasicBlock *, int> &RandomNumberBBs,
     std::map<BasicBlock *, int> &SubRanPrevVals, Value &RuntimeSig,
     Value &RetSig, BasicBlock &ErrBB) {
@@ -251,7 +251,7 @@ void RacfedTry::createCFGVerificationBB(
   }
 }
 
-PreservedAnalyses RacfedTry::run(Module &Md, ModuleAnalysisManager &AM) {
+PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   std::map<BasicBlock*, int> RandomNumberBBs;
   std::map<BasicBlock*, int> SubRanPrevVals;
   std::map<BasicBlock *, int> SumIntraInstruction;
@@ -288,12 +288,12 @@ PreservedAnalyses RacfedTry::run(Module &Md, ModuleAnalysisManager &AM) {
 extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
 
 llvmGetPassPluginInfo() {
-  return {LLVM_PLUGIN_API_VERSION, "RacfedTry", "v0.1", [](PassBuilder &PB) {
+  return {LLVM_PLUGIN_API_VERSION, "RACFED", "v0.1", [](PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,
                    ArrayRef<PassBuilder::PipelineElement>) {
                   if (Name == "racfed-verify") {
-                    MPM.addPass(RacfedTry());
+                    MPM.addPass(RACFED());
                     return true;
                   }
                   return false;
