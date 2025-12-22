@@ -19,7 +19,7 @@ input_files=""
 clang_options=
 eddi_options="-S"
 cfc_options="-S"
-llvm_bin=$(dirname $(which clang &> /dev/null) &> /dev/null)
+llvm_bin=$(dirname "$(which clang)")
 build_dir="."
 dup=0 # 0 = eddi,   1 = seddi,  2 = fdsc
 cfc=0 # 0 = cfcss,  1 = rasm,   2 = inter-rasm
@@ -207,6 +207,9 @@ EOF
                     --inter-rasm)
                         cfc=2
                         ;;
+                    --racfed)
+                        cfc=3
+                        ;;
                     --no-cfc)
                         cfc=-1
                         ;;
@@ -365,6 +368,9 @@ run_aspis() {
         2) 
             exe $OPT -load-pass-plugin=$DIR/build/passes/libINTER_RASM.so --passes="rasm-verify" $build_dir/out.ll -o $build_dir/out.ll $cfc_options
             ;;
+#        3)
+#            exe $OPT -load-pass-plugin=$DIR/build/passes/libRACFED.so --passes="racfed-verify" $build_dir/out.ll -o $build_dir/out.ll $cfc_options
+#            ;;
         *)
             echo -e "\t--no-cfc specified!"
     esac
@@ -436,6 +442,6 @@ run_aspis() {
     success_msg "Done!"
 }
 
-parse_commands $@
+parse_commands "$@"
 perform_platform_checks $CLANG $OPT $LLVM_LINK
 run_aspis

@@ -14,43 +14,102 @@
 
 using namespace llvm;
 
-bool unicity(int candidate,
-              const std::map<BasicBlock*, int> &Values) {
-  for (const auto &pair : Values) {
-    if (pair.second == candidate) {
-      return true;
-    }
+/**
+ * initializeBlockSignatures
+1:for all Basic Block (BB) in CFG do
+2: repeat compileTimeSig ← random number
+3: until compileTimeSig is unique
+4: repeat subRanPrevVal ← random number
+5: until (compileTimeSig + subRanP revV al) is unique
+ * updateSignatureRandom
+6:for all BB in CFG do
+7:   if NrInstrBB > 2 then
+8:    for all original instructions insert after
+9:      signature ← signature + random number
+  * create CFG
+  * checkBeginning
+10:for all BB in CFG insert at beginning
+11:  signature ← signature − subRanP revV al
+12:  if signature != compileTimeSig error()
+13:for all BB in CFG do
+  * checkRetVal
+14: if Last Instr. is return instr. and NrIntrBB > 1 then
+15:   Calculate needed variables
+16:     return Val ← random number
+17:     adjust Value ← (compile TimeSigBB + Sum{instrMonUpdates}) -
+18:                 return Val
+19:   Insert signature update before return instr.
+20:     signature ← signature + adjustValue
+21:     if signature != returnVal error()
+22: else
+  * checkJump
+23:   for all Successor of BB do
+24:    adjust Value ← (compile TimeSigBB + \Sum{instrMonUpdates}) -
+25:     (compile TimeSigsuccs + subRanPrevValsuccs )
+26:   Insert signature update at BB end
+27:     signature ← signature + adjust Value
+*/
 
+
+// --- INITIALIZE BLOCKS RANDOM ---
+
+bool RACFED::isNotUniqueCompileTimeSig(int bb_num) {
+  for (const auto &pair : compileTimeSig) {
+    if (pair.second == bb_num) return true;
   }
   return false;
 }
 
-void RACFED::initializeBlocksSignatures(
-    Module &Md, std::map<BasicBlock *, int> &RandomNumberBBs,
-    std::map<BasicBlock *, int> &SubRanPrevVals,
-    std::map<BasicBlock *, int> &SumIntraInstruction) {
+bool unicity(
+  const int bb_num, const int subrun_num,
+  const std::unordered_map<BasicBlock*, int> &RandomNumBBs,
+  const std::unordered_map<BasicBlock*, int> &SubRanPrevVals
+) {
+
+  for (const auto &pair : RandomNumBBs) {
+    if (pair.second + SubRanPrevVals.at(pair.first) == bb_num + subrun_num) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void RACFED::initializeBlocksSignatures(Module &Md) {
   int i = 0;
-  srand((unsigned)time(NULL));   // compileTimeSig weak random generator
+  srand(static_cast<unsigned>(time(nullptr)));   // compileTimeSig weak random generator
+  int randomBB;
+  int randomSub;
 
   for (Function &Fn : Md) {
     if (shouldCompile(Fn, FuncAnnotations)) {
       for (BasicBlock &BB : Fn) {
-
-        int randomBB = rand(); //unused for debugging purposes. From paper used in BB number
-        int randomSub = rand();
         do {
-          int randomSub = rand();
-        }while (unicity(randomSub, SubRanPrevVals));
-        RandomNumberBBs.insert(std::pair<BasicBlock *, int>(&BB, i));//not random, guarantees unicity
-        SubRanPrevVals.insert(std::pair<BasicBlock *, int>(&BB, randomSub)); //In this way the sub value is random
-        SumIntraInstruction.insert(std::pair<BasicBlock *, int>(&BB, 0));//assign value to the sum of the instr
-        i= i+1;
+          randomBB = rand();
+        } while (isNotUniqueCompileTimeSig(randomBB));
 
+        do {
+          randomSub = rand();
+        } while (unicity(i, randomSub, compileTimeSig, subRanPrevVals));
+        compileTimeSig.insert(std::pair(&BB, randomBB));//not random, guarantees unicity
+        subRanPrevVals.insert(std::pair(&BB, randomSub)); //In this way the sub value is random
+        sumIntraInstruction.insert(std::pair(&BB, 0));//assign value to the sum of the instr
+        i++;
       }
     }
   }
-  return;
 }
+
+
+// --- UPDATE SIGNATURE RANDOM  ---
+
+void RACFED::updateCompileSigRandom() {
+
+}
+
+// --- CREATE CFG VERIFICATION ---
+
+
 
 void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> OrigInstructions) {
 
@@ -120,8 +179,8 @@ Value *RACFED::getCondition(Instruction &I) {
 }
 
 void RACFED::createCFGVerificationBB(
-    BasicBlock &BB, std::map<BasicBlock *, int> &RandomNumberBBs,
-    std::map<BasicBlock *, int> &SubRanPrevVals, Value &RuntimeSig,
+    BasicBlock &BB, std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
+    std::unordered_map<BasicBlock *, int> &SubRanPrevVals, Value &RuntimeSig,
     Value &RetSig, BasicBlock &ErrBB) {
 
   auto *IntType = llvm::Type::getInt32Ty(BB.getContext());
@@ -207,19 +266,7 @@ void RACFED::createCFGVerificationBB(
           } else {
             B.SetInsertPoint(Term);
           }
-          // For simplicity in this implementation, we just update before
-          // terminator. Real RACFED might need more complex handling for
-          // conditional branches if diff depends on path. But here diff depends
-          // on (Pred, Succ) pair. Actually, we need to update RuntimeSig in the
-          // predecessor (BB) so that when we subtract subRanPrevVal_succ in
-          // Succ, we get randomNumberBB_succ. Current RuntimeSig is
-          // randomNumberBB. We want (randomNumberBB - adjustment) -
-          // subRanPrevVal_succ_stored = randomNumberBB_succ But
-          // subRanPrevVal_succ_stored is fixed for Succ. So we need to adjust
-          // RuntimeSig in BB before jumping to Succ.
 
-          // This part is tricky in RACFED/RASM.
-          // For now, let's assume simple adjustment.
         }
       }
     }
@@ -232,11 +279,9 @@ void RACFED::createCFGVerificationBB(
     // Move instructions from BB to RetVerificationBB, except the verification
     // logic we just added? No, we want to verify BEFORE return. Actually, the
     // verification block is already added at the beginning of BB. Now we want
-    // to update signature before return? RASM updates signature at exit? Let's
-    // look at the provided RACFED.cpp from previous turn.
+    // to update signature before return? RASM updates signature at exit?
 
-    // It seems I missed copying the full logic for return handling from the
-    // previous view. I will implement a basic return check.
+
 
     IRBuilder<> BRet(RetVerificationBB);
     Value *InstrRuntimeSig = BRet.CreateLoad(IntType, &RuntimeSig, true);
@@ -252,38 +297,54 @@ void RACFED::createCFGVerificationBB(
 }
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
-  std::map<BasicBlock*, int> RandomNumberBBs;
-  std::map<BasicBlock*, int> SubRanPrevVals;
-  std::map<BasicBlock *, int> SumIntraInstruction;
+
   // mappa: istruzione originale -> random r usato per S = S + r
-  std::map<llvm::Instruction*, int> InstrUpdates;
+  std::unordered_map<llvm::Instruction*, int> InstrUpdates;
+  auto *IntType = llvm::Type::getInt32Ty(Md.getContext());
+  std::unordered_map<Function*, BasicBlock*> ErrBBs;
+
   createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
-  initializeBlocksSignatures(Md, RandomNumberBBs, SubRanPrevVals, SumIntraInstruction);
-  LinkageMap linkageMap = mapFunctionLinkageNames(Md); // Sta funzione è inutile a meno di scopi di debug
-                        // Ma allora dovrebbe essere utilizzata solo all'interno di un blocco di DEBUG
-  std::map<Function *, BasicBlock *> ErrBBs;
+  LinkageMap linkageMap = mapFunctionLinkageNames((Md)); 
+
+  initializeBlocksSignatures(Md);
+
+  updateCompileSigRandom();
+
+  createCFGVerificationBB();
+
   for (Function &Fn : Md) {
     if (!shouldCompile(Fn, FuncAnnotations))
       continue;
 
+    if (shouldCompile(Fn, FuncAnnotations)) {
+      DebugLoc debugLoc;
+      for (auto &I : Fn.front()) {
+        if (I.getDebugLoc()) {
+          debugLoc = I.getDebugLoc();
+          break;
+        }
+      }
+
     for (BasicBlock &BB : Fn) {
       std::vector<Instruction*> OrigInstructions;
-      originalInstruction(BB,OrigInstructions);
-      if (OrigInstructions.size()<=2) {
+      originalInstruction(BB, OrigInstructions);
+      if (OrigInstructions.size()<2)
         continue;
-      }
-      for (Instruction *I: OrigInstructions) {
+      int sumOfIntraUpdates = 0;
+      auto *IntType = llvm::Type::getInt32Ty(BB.getContext()); // control to get context for add and compare ...
+
+      for (Instruction *I:OrigInstructions) {
         int r = rand();
-        InstrUpdates[I] = r;
-        SumIntraInstruction[&BB] += r;
+        sumOfIntraUpdates += r;
+        InstrUpdates[I]=r;
       }
+      sumIntraInstruction[&BB] = sumOfIntraUpdates;
     }
-
-
   }
-  auto *IntType = llvm::Type::getInt32Ty(Md.getContext());
 }
+
+
 
 extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
 
