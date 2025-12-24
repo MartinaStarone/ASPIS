@@ -12,6 +12,8 @@
           // the code
 #define INTRA_FUNCTION_CFC 0 // Default to 0 if not defined
 
+#define MARTI_DEBUG true
+
 using namespace llvm;
 
 /**
@@ -53,7 +55,9 @@ using namespace llvm;
 
 // --- INITIALIZE BLOCKS RANDOM ---
 
-bool RACFED::isNotUniqueCompileTimeSig(int bb_num) {
+bool isNotUniqueCompileTimeSig(int bb_num,
+  const std::unordered_map<BasicBlock*, int> &compileTimeSig
+) {
   for (const auto &pair : compileTimeSig) {
     if (pair.second == bb_num) return true;
   }
@@ -86,7 +90,7 @@ void RACFED::initializeBlocksSignatures(Module &Md) {
       for (BasicBlock &BB : Fn) {
         do {
           randomBB = rand();
-        } while (isNotUniqueCompileTimeSig(randomBB));
+        } while (isNotUniqueCompileTimeSig(randomBB, compileTimeSig));
 
         do {
           randomSub = rand();
@@ -102,6 +106,26 @@ void RACFED::initializeBlocksSignatures(Module &Md) {
 
 
 // --- UPDATE SIGNATURE RANDOM  ---
+void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> &OrigInstructions) {
+
+  for (Instruction &I : BB) {
+    if (isa<PHINode>(&I)) continue; // NON è originale
+    if (I.isTerminator()) continue; // NON è originale
+    if (isa<DbgInfoIntrinsic>(&I)) continue; // debug, ignora OrigInstructions.push_back(&I);
+    OrigInstructions.push_back(&I);
+  }
+}
+
+int countOriginalInstructions(BasicBlock &BB) {
+  int count = 0;
+  for (Instruction &I : BB) {
+    if (isa<PHINode>(&I)) continue;       // NON è originale
+    if (I.isTerminator()) continue;       // NON è originale
+    if (isa<DbgInfoIntrinsic>(&I)) continue; // debug, ignora
+    count++;
+  }
+  return count;
+}
 
 void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
   LLVMContext &Ctx = Md.getContext();
@@ -110,6 +134,9 @@ void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
   std::uniform_int_distribution<uint32_t> dist(1, 0x7fffffff);
   auto *I32 = Type::getInt32Ty(Ctx);
   if (!SigGV) {
+#if MARTI_DEBUG
+    errs() << "SigGV " << SigGV << "\n";
+#endif
     SigGV = new GlobalVariable(
         Md,
         I32,
@@ -158,8 +185,6 @@ void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
 }
 
 // --- CREATE CFG VERIFICATION ---
-
-
 
 
 void RACFED::splitBBsAtCalls(Module &Md) {
@@ -326,51 +351,53 @@ void RACFED::createCFGVerificationBB(
 }
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
-
   // mappa: istruzione originale -> random r usato per S = S + r
   std::unordered_map<llvm::Instruction*, int> InstrUpdates;
   auto *IntType = llvm::Type::getInt32Ty(Md.getContext());
   std::unordered_map<Function*, BasicBlock*> ErrBBs;
 
-  createFtFuncs(Md);
+  // createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
-  LinkageMap linkageMap = mapFunctionLinkageNames((Md)); 
+  LinkageMap linkageMap = mapFunctionLinkageNames((Md));
 
   initializeBlocksSignatures(Md);
 
-  updateCompileSigRandom();
-
-  createCFGVerificationBB();
-
-  for (Function &Fn : Md) {
-    if (!shouldCompile(Fn, FuncAnnotations))
-      continue;
-
-    if (shouldCompile(Fn, FuncAnnotations)) {
-      DebugLoc debugLoc;
-      for (auto &I : Fn.front()) {
-        if (I.getDebugLoc()) {
-          debugLoc = I.getDebugLoc();
-          break;
-        }
-      }
-
-    for (BasicBlock &BB : Fn) {
-      std::vector<Instruction*> OrigInstructions;
-      originalInstruction(BB, OrigInstructions);
-      if (OrigInstructions.size()<2)
-        continue;
-      int sumOfIntraUpdates = 0;
-      auto *IntType = llvm::Type::getInt32Ty(BB.getContext()); // control to get context for add and compare ...
-
-      for (Instruction *I:OrigInstructions) {
-        int r = rand();
-        sumOfIntraUpdates += r;
-        InstrUpdates[I]=r;
-      }
-      sumIntraInstruction[&BB] = sumOfIntraUpdates;
-    }
+  for (Function &F: Md){
+    updateCompileSigRandom(F, Md);
   }
+
+  // createCFGVerificationBB();
+  //
+  // for (Function &Fn : Md) {
+  //   if (!shouldCompile(Fn, FuncAnnotations))
+  //     continue;
+  //
+  //   if (shouldCompile(Fn, FuncAnnotations)) {
+  //     DebugLoc debugLoc;
+  //     for (auto &I : Fn.front()) {
+  //       if (I.getDebugLoc()) {
+  //         debugLoc = I.getDebugLoc();
+  //         break;
+  //       }
+  //     }
+  //
+  //   for (BasicBlock &BB : Fn) {
+  //     std::vector<Instruction*> OrigInstructions;
+  //     originalInstruction(BB, OrigInstructions);
+  //     if (OrigInstructions.size()<2)
+  //       continue;
+  //     int sumOfIntraUpdates = 0;
+  //     auto *IntType = llvm::Type::getInt32Ty(BB.getContext()); // control to get context for add and compare ...
+  //
+  //     for (Instruction *I:OrigInstructions) {
+  //       int r = rand();
+  //       sumOfIntraUpdates += r;
+  //       InstrUpdates[I]=r;
+  //     }
+  //     sumIntraInstruction[&BB] = sumOfIntraUpdates;
+  //   }
+  // }
+  return PreservedAnalyses::all();
 }
 
 

@@ -160,9 +160,9 @@ class RACFED : public PassInfoMixin<RACFED> {
 private:
   std::map<Value *, StringRef> FuncAnnotations;
   std::map<BasicBlock *, BasicBlock *> NewBBs;
-    std::unordered_map<BasicBlock *, int> compileTimeSig;
-    std::unordered_map<BasicBlock *, int> subRanPrevVals;
-    std::unordered_map<BasicBlock *, int> &sumIntraInstruction;
+  std::unordered_map<BasicBlock *, int> compileTimeSig;
+  std::unordered_map<BasicBlock *, int> subRanPrevVals;
+  std::unordered_map<BasicBlock *, int> sumIntraInstruction;
 
 
 #if (LOG_COMPILED_FUNCS == 1)
@@ -171,14 +171,10 @@ private:
 
   // -- INITIALIZE BLOCKS --
   void initializeBlocksSignatures(Module &Md);
-  bool isNotUniqueCompileTimeSig(int bb_num);
   // -- UPDATE COMPILE SIG RANDOM --
-  void updateCompileSigRandom();
+  void updateCompileSigRandom(Function &F, Module &Md);
 
   // -- CREATE CFG VERIFICATION --
-
-
-  void originalInstruction(BasicBlock &BB,std::vector<Instruction*> OrigInstructions);
 
   void splitBBsAtCalls(Module &Md);
   int countOriginalInstructions(BasicBlock &BB);
