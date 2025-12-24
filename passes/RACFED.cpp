@@ -103,35 +103,64 @@ void RACFED::initializeBlocksSignatures(Module &Md) {
 
 // --- UPDATE SIGNATURE RANDOM  ---
 
-void RACFED::updateCompileSigRandom() {
+void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
+  LLVMContext &Ctx = Md.getContext();
+  GlobalVariable *SigGV = Md.getNamedGlobal("signature");
+  std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
+  std::uniform_int_distribution<uint32_t> dist(1, 0x7fffffff);
+  auto *I32 = Type::getInt32Ty(Ctx);
+  if (!SigGV) {
+    SigGV = new GlobalVariable(
+        Md,
+        I32,
+        /*isConstant=*/false,
+        GlobalValue::ExternalLinkage,
+        ConstantInt::get(I32, 0),
+        "signature");
+  }
 
+  bool changed = false;
+
+  for (auto &BB: F){
+    std::vector<Instruction*> OrigInstructions;
+    originalInstruction(BB, OrigInstructions);
+
+    if (OrigInstructions.size() <= 2)
+      continue;
+
+    for (Instruction *I : OrigInstructions) {
+      Instruction *InsertPt = nullptr;
+
+
+      // Non puoi inserire "dopo" un terminator: inserisci prima del terminator stesso
+      if (I->isTerminator()) {
+        InsertPt = I; // insert BEFORE terminator
+      } else {
+        InsertPt = I->getNextNode(); // insert BEFORE next instruction (equivale a "dopo I")
+      }
+
+      IRBuilder<> B(InsertPt);
+
+      // signature = signature + randomConstant
+      uint32_t K = dist(rng);
+      #if MARTI_DEBUG
+      errs() << "Dist value: " << K << "\n";
+      #endif
+      Value *OldSig = B.CreateLoad(I32, SigGV);
+#if MARTI_DEBUG
+      errs() << "Loaded Signature" << "\n";
+#endif
+      Value *Add = B.CreateAdd(OldSig, ConstantInt::get(I32, K), "sig_add");
+      B.CreateStore(Add, SigGV);
+      changed= true;
+    }
+  }
 }
 
 // --- CREATE CFG VERIFICATION ---
 
 
 
-void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> OrigInstructions) {
-
-  for (Instruction &I : BB) {
-    if (isa<PHINode>(&I)) continue; // NON è originale
-    if (I.isTerminator()) continue; // NON è originale
-    if (isa<DbgInfoIntrinsic>(&I)) continue; // debug, ignora OrigInstructions.push_back(&I);
-    OrigInstructions.push_back(&I);
-  }
-  int numOrig = OrigInstructions.size();
-}
-
-int countOriginalInstructions(BasicBlock &BB) {
-  int count = 0;
-  for (Instruction &I : BB) {
-    if (isa<PHINode>(&I)) continue;       // NON è originale
-    if (I.isTerminator()) continue;       // NON è originale
-    if (isa<DbgInfoIntrinsic>(&I)) continue; // debug, ignora
-    count++;
-  }
-  return count;
-}
 
 void RACFED::splitBBsAtCalls(Module &Md) {
   for (Function &Fn : Md) {

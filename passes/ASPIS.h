@@ -19,7 +19,7 @@ using namespace llvm;
 // DATA PROTECTION
 class FuncRetToRef : public PassInfoMixin<FuncRetToRef> {
     private:
-        Function* updateFnSignature(Function &Fn, Module &Md);
+        void updateFnSignature(Function &Fn, Module &Md);
         void updateRetInstructions(Function &Fn);
         void updateFunctionCalls(Function &Fn, Function &NewFn);
 
