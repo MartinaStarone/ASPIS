@@ -162,7 +162,7 @@ private:
   std::map<BasicBlock *, BasicBlock *> NewBBs;
   std::unordered_map<BasicBlock *, int> compileTimeSig;
   std::unordered_map<BasicBlock *, int> subRanPrevVals;
-  std::unordered_map<BasicBlock *, int> sumIntraInstruction;
+  std::unordered_map<BasicBlock *, uint64_t> sumIntraInstruction;
 
 
 #if (LOG_COMPILED_FUNCS == 1)
