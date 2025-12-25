@@ -29,7 +29,7 @@ using namespace llvm;
 8:    for all original instructions insert after
 9:      signature ← signature + random number
   * create CFG
-  * checkBeginning
+  * checkCompileTimeSigAtJump
 10:for all BB in CFG insert at beginning
 11:  signature ← signature − subRanPrevVal
 12:  if signature != compileTimeSig error()
@@ -38,7 +38,7 @@ using namespace llvm;
 14: if Last Instr. is return instr. and NrIntrBB > 1 then
 15:   Calculate needed variables
 16:     return Val ← random number
-17:     adjust Value ← (compileTimeSigBB + Sum{instrMonUpdates}) -
+17:     adjust Value ← (compileTimeSigBB + Sum{in%2 = load i32, ptr @signature, align 4
 18:                 return Val
 19:   Insert signature update before return instr.
 20:     signature ← signature + adjustValue
@@ -56,23 +56,23 @@ using namespace llvm;
 // --- INITIALIZE BLOCKS RANDOM ---
 
 bool isNotUniqueCompileTimeSig(
-  const int bb_num,
-  const std::unordered_map<BasicBlock*, int> &compileTimeSig
+  const uint32_t bb_num,
+  const std::unordered_map<BasicBlock*, uint32_t> &compileTimeSig
 ) {
-  for (const auto &pair : compileTimeSig) {
-    if (pair.second == bb_num) return true;
+  for (const auto &[_, other_bb_id] : compileTimeSig) {
+    if ( other_bb_id == bb_num ) return true;
   }
   return false;
 }
 
 bool isNotUnique(
-  const int bb_num, const int subrun_num,
-  const std::unordered_map<BasicBlock*, int> &RandomNumBBs,
-  const std::unordered_map<BasicBlock*, int> &SubRanPrevVals
+  const uint32_t current_id,
+  const std::unordered_map<BasicBlock*, uint32_t> &RandomNumBBs,
+  const std::unordered_map<BasicBlock*, uint32_t> &SubRanPrevVals
 ) {
-
-  for (const auto &pair : RandomNumBBs) {
-    if (pair.second + SubRanPrevVals.at(pair.first) == bb_num + subrun_num) {
+  for (const auto &[other_bb, other_bb_num] : RandomNumBBs) {
+    uint32_t other_id = static_cast<uint32_t>(other_bb_num) + SubRanPrevVals.at(other_bb);
+    if ( other_id == current_id ) {
       return true;
     }
   }
@@ -80,38 +80,32 @@ bool isNotUnique(
   return false;
 }
 
-void RACFED::initializeBlocksSignatures(Module &Md) {
-  int i = 0;
-  srand(static_cast<unsigned>(time(nullptr)));   // compileTimeSig weak random generator
-  int randomBB;
-  int randomSub;
+void RACFED::initializeBlocksSignatures(Module &Md, Function &Fn) {
+  std::mt19937 rng(0xB00BA5); // seed fisso per riproducibilità
+  std::uniform_int_distribution<uint32_t> dist(1, 0x7fffffff);
+  uint32_t randomBB;
+  uint32_t randomSub;
 
-  for (Function &Fn : Md) {
-    if (shouldCompile(Fn, FuncAnnotations)) {
-      for (BasicBlock &BB : Fn) {
+  for (BasicBlock &BB : Fn) {
+    do {
+      randomBB = dist(rng);
+    } while ( isNotUniqueCompileTimeSig(randomBB, compileTimeSig) );
 
-        do {
-          randomBB = rand();
-        } while (isNotUniqueCompileTimeSig(randomBB, compileTimeSig));
+    do {
+      randomSub = dist(rng);
+    } while ( isNotUnique(
+      static_cast<uint32_t>(randomBB) + randomSub,
+      compileTimeSig,
+      subRanPrevVals) );
 
-        do {
-          randomSub = rand();
-        } while (isNotUnique(i, randomSub, compileTimeSig, subRanPrevVals));
-
-        compileTimeSig.insert(std::pair(&BB, randomBB));//not random, guarantees unicity
-        subRanPrevVals.insert(std::pair(&BB, randomSub)); //In this way the sub value is random
-        sumIntraInstruction.insert(std::pair(&BB, 0));//assign value to the sum of the instr
-        i++;
-
-      }
-    }
+    compileTimeSig.insert(std::pair(&BB, randomBB));
+    subRanPrevVals.insert(std::pair(&BB, randomSub));
   }
 }
 
 
 // --- UPDATE SIGNATURE RANDOM  ---
 void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> &OrigInstructions) {
-
   for (Instruction &I : BB) {
     if (isa<PHINode>(&I)) continue; // NON è originale
     if (I.isTerminator()) continue; // NON è originale
@@ -120,28 +114,27 @@ void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> &OrigInstruc
   }
 }
 
-void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
+void RACFED::updateCompileSigRandom(Module &Md, Function &Fn) {
   LLVMContext &Ctx = Md.getContext();
   GlobalVariable *SigGV = Md.getNamedGlobal("signature");
   std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
   std::uniform_int_distribution<uint32_t> dist(1, 0x7fffffff);
-  auto *I32 = Type::getInt32Ty(Ctx);
+  auto *I64 = Type::getInt64Ty(Ctx);
   if (!SigGV) {
     SigGV = new GlobalVariable(
         Md,
-        I32,
+        I64,
         /*isConstant=*/false,
         GlobalValue::ExternalLinkage,
-        ConstantInt::get(I32, 0),
+        ConstantInt::get(I64, 0),
         "signature");
   }
 
-  for (auto &BB: F){
+  for (auto &BB: Fn){
     std::vector<Instruction*> OrigInstructions;
     originalInstruction(BB, OrigInstructions);
 
-    if (OrigInstructions.size() <= 2)
-      continue;
+    if (OrigInstructions.size() <= 2) continue;
 
     uint64_t partial_sum;
 
@@ -158,7 +151,7 @@ void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
       IRBuilder<> B(InsertPt);
 
       // signature = signature + randomConstant
-      uint32_t K = dist(rng);
+      uint64_t K = dist(rng);
 
       try {
         partial_sum = K + sumIntraInstruction.at(&BB);
@@ -168,15 +161,76 @@ void RACFED::updateCompileSigRandom(Function &F, Module &Md) {
 
       sumIntraInstruction.insert(std::pair(&BB, partial_sum));
 
-      Value *OldSig = B.CreateLoad(I32, SigGV);
-      Value *Add = B.CreateAdd(OldSig, ConstantInt::get(I32, K), "sig_add");
+      Value *OldSig = B.CreateLoad(I64, SigGV);
+      Value *Add = B.CreateAdd(OldSig, ConstantInt::get(I64, K), "sig_add");
       B.CreateStore(Add, SigGV);
     }
   }
+
 }
 
 // --- CREATE CFG VERIFICATION ---
 
+void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
+  auto *IntType = llvm::Type::getInt64Ty(Md.getContext());
+  
+  BasicBlock *ErrBB = BasicBlock::Create(Fn.getContext(), "ErrBB", &Fn);
+  IRBuilder<> ErrB(ErrBB);
+
+  IRBuilder<> B(&*(Fn.front().getFirstInsertionPt()));
+
+  Value *RuntimeSig = B.CreateAlloca(IntType);
+
+  for(BasicBlock &BB: Fn) {
+    int randomNumberBB = compileTimeSig.find(&BB)->second;
+    int subRanPrevVal = subRanPrevVals.find(&BB)->second;
+ 
+    // in this case BB is not the first Basic Block of the function, so it has to
+    // update RuntimeSig and check it
+    if (!BB.isEntryBlock()) {
+      if (isa<LandingPadInst>(BB.getFirstNonPHI()) ||
+	  BB.getName().contains_insensitive("verification")) {
+	IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
+	BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),
+			     RuntimeSig, true);
+      } else if (!BB.getName().contains_insensitive("errbb")) {
+	BasicBlock *NewBB = BasicBlock::Create(
+	    BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
+	IRBuilder<> BChecker(NewBB);
+
+	// add instructions for the first runtime signature update
+	Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, RuntimeSig, true);
+
+	Value *RuntimeSignatureVal = BChecker.CreateSub(
+	    InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
+	BChecker.CreateStore(RuntimeSignatureVal, RuntimeSig, true);
+
+	// update phi placing them in the new block
+	while (isa<PHINode>(&BB.front())) {
+	  Instruction *PhiInst = &BB.front();
+	  PhiInst->removeFromParent();
+	  PhiInst->insertBefore(&NewBB->front());
+	}
+
+	// replace the uses of BB with NewBB
+	for (BasicBlock &BB_ : *BB.getParent()) {
+	  if (&BB_ != NewBB) {
+	    BB_.getTerminator()->replaceSuccessorWith(&BB, NewBB);
+	  }
+	}
+
+	// add instructions for checking the runtime signature
+	Value *CmpVal =
+	    BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
+			       llvm::ConstantInt::get(IntType, randomNumberBB));
+	BChecker.CreateCondBr(CmpVal, &BB, ErrBB);
+
+	// add NewBB and BB into the NewBBs map
+	NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
+      }
+    }
+  }
+}
 
 
 void RACFED::createCFGVerificationBB(
@@ -185,59 +239,15 @@ void RACFED::createCFGVerificationBB(
     Value &RetSig, BasicBlock &ErrBB
 ) {
 
-  // checkBeginning() NON ENTRY BLOCK
+  // checkCompileSigAtJump() NON ENTRY BLOCK
   // compileTimeSig - subRunPrevVal
   // if compileTimeSig != runtime_sig error()
 
-  auto *IntType = llvm::Type::getInt32Ty(BB.getContext());
+  auto *IntType = llvm::Type::getInt64Ty(BB.getContext());
 
   int randomNumberBB = RandomNumberBBs.find(&BB)->second;
   int subRanPrevVal = SubRanPrevVals.find(&BB)->second;
 
-  // in this case BB is not the first Basic Block of the function, so it has to
-  // update RuntimeSig and check it
-  if (!BB.isEntryBlock()) {
-    if (isa<LandingPadInst>(BB.getFirstNonPHI()) ||
-        BB.getName().contains_insensitive("verification")) {
-      IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
-      BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),
-                           &RuntimeSig, true);
-    } else if (!BB.getName().contains_insensitive("errbb")) {
-      BasicBlock *NewBB = BasicBlock::Create(
-          BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
-      IRBuilder<> BChecker(NewBB);
-
-      // add instructions for the first runtime signature update
-      Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, &RuntimeSig, true);
-
-      Value *RuntimeSignatureVal = BChecker.CreateSub(
-          InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
-      BChecker.CreateStore(RuntimeSignatureVal, &RuntimeSig, true);
-
-      // update phi placing them in the new block
-      while (isa<PHINode>(&BB.front())) {
-        Instruction *PhiInst = &BB.front();
-        PhiInst->removeFromParent();
-        PhiInst->insertBefore(&NewBB->front());
-      }
-
-      // replace the uses of BB with NewBB
-      for (BasicBlock &BB_ : *BB.getParent()) {
-        if (&BB_ != NewBB) {
-          BB_.getTerminator()->replaceSuccessorWith(&BB, NewBB);
-        }
-      }
-
-      // add instructions for checking the runtime signature
-      Value *CmpVal =
-          BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
-                             llvm::ConstantInt::get(IntType, randomNumberBB));
-      BChecker.CreateCondBr(CmpVal, &BB, &ErrBB);
-
-      // add NewBB and BB into the NewBBs map
-      NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
-    }
-  }
 
   // checkReturnVal()
   // compute returnValue
@@ -313,6 +323,7 @@ void RACFED::createCFGVerificationBB(
   // }
 }
 
+
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   // mappa: istruzione originale -> random r usato per S = S + r
   std::unordered_map<llvm::Instruction*, int> InstrUpdates;
@@ -323,10 +334,17 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   getFuncAnnotations(Md, FuncAnnotations);
   LinkageMap linkageMap = mapFunctionLinkageNames((Md));
 
-  initializeBlocksSignatures(Md);
+  for (Function &Fn : Md) {
+    if (shouldCompile(Fn, FuncAnnotations))
+      initializeBlocksSignatures(Md, Fn);
+  }
 
-  for (Function &F: Md){
-    updateCompileSigRandom(F, Md);
+  for (Function &Fn: Md) {
+    updateCompileSigRandom(Md, Fn);
+  }
+
+  for(Function &Fn: Md) {
+    checkCompileTimeSigAtJump(Md, Fn);
   }
 
   // createCFGVerificationBB();
