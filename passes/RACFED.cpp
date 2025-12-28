@@ -170,6 +170,48 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn) {
 }
 
 // --- CREATE CFG VERIFICATION ---
+ConstantInt *RACFED::expectedSignature(BasicBlock *Succ, Module &Md,
+                                       const std::unordered_map<BasicBlock *, int> &compileTimeSig,
+                                       const std::unordered_map<BasicBlock *, int> &subRanPrevVals) {
+  const int expected = compileTimeSig.at(Succ);
+  const int expectedSub = subRanPrevVals.at(Succ);
+  auto *I32 = Type::getInt32Ty(Md.getContext());
+  return ConstantInt:: get(I32, expected+expectedSub);
+
+}
+void RACFED:: checkBranches(IRBuilder<> B, BasicBlock &BB, Module &Md, GlobalVariable *RuntimeSigGV) {
+  Instruction *Term = BB.getTerminator();
+  auto *BI = dyn_cast<BranchInst>(Term);
+  if (!BI) return;
+  LLVMContext &Ctx = BB.getContext();
+  auto *I32 = Type::getInt32Ty(Ctx);
+  //load the current runtimevariable
+  Value *Current = B.CreateLoad(I32, RuntimeSigGV, "current");
+  Value *Expected = nullptr;
+
+//define if conditional or unconditional branch
+  //Conditional: expected= CT_succ+subRan_succ
+    //adj = CTB-exp--> new signature = RT -adj
+  if (BI -> isUnconditional()) {
+      BasicBlock *Succ = BI->getSuccessor(0);
+      auto expected = expectedSignature(Succ,Md,compileTimeSig,subRanPrevVals);
+     // adj = expected - current
+      Value *Adj = B.CreateSub(Expected, Current, "racfed.adj");
+      Value *NewSig = B.CreateAdd(Current, Adj, "racfed.newsig");
+      B.CreateStore(NewSig, RuntimeSigGV);
+
+      // verify newSig == expected
+      Value *Ok = B.CreateICmpEQ(NewSig, Expected, "racfed.ok");
+
+      // Replace terminator with condbr(ok, succ, ErrBB)
+      BI->eraseFromParent();
+      IRBuilder<> BT(&BB);
+      BT.CreateCondBr(Ok, Succ, nullptr);
+  }else {
+      BasicBlock *SuccT = BI->getSuccessor(0);
+      BasicBlock *SuccF = BI->getSuccessor(1);
+
+  }
 
 void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
   auto *IntType = llvm::Type::getInt64Ty(Md.getContext());
@@ -232,6 +274,10 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
   }
 }
 
+
+
+  //Conditional: compute the two adj and the signature that corresponds.
+}
 
 void RACFED::createCFGVerificationBB(
     BasicBlock &BB, std::unordered_map<BasicBlock *, int> &RandomNumberBBs,

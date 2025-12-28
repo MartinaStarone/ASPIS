@@ -160,8 +160,8 @@ class RACFED : public PassInfoMixin<RACFED> {
 private:
   std::map<Value *, StringRef> FuncAnnotations;
   std::map<BasicBlock *, BasicBlock *> NewBBs;
-  std::unordered_map<BasicBlock *, uint32_t> compileTimeSig;
-  std::unordered_map<BasicBlock *, uint32_t> subRanPrevVals;
+  std::unordered_map<BasicBlock *, int> compileTimeSig;
+  std::unordered_map<BasicBlock *, int> subRanPrevVals;
   std::unordered_map<BasicBlock *, uint64_t> sumIntraInstruction;
 
 
@@ -170,25 +170,22 @@ private:
 #endif
 
   // -- INITIALIZE BLOCKS --
-  void initializeBlocksSignatures(Module &Md, Function &Fn);
-
+  void initializeBlocksSignatures(Module &Md);
   // -- UPDATE COMPILE SIG RANDOM --
-  void updateCompileSigRandom(Module &Md, Function &Fn);
+  void updateCompileSigRandom(Function &F, Module &Md);
 
   // -- CREATE CFG VERIFICATION --
-  void checkCompileTimeSigAtJump(Module &Md, Function &Fn);
 
   void splitBBsAtCalls(Module &Md);
+  int countOriginalInstructions(BasicBlock &BB);
   CallBase *isCallBB(BasicBlock &BB);
   void initializeEntryBlocksMap(Module &Md);
   Value *getCondition(Instruction &I);
-  void createCFGVerificationBB(
-    BasicBlock &BB,
-    std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
-    std::unordered_map<BasicBlock *, int> &SubRanPrevVals,
-    Value &RuntimeSig, Value &RetSig,
-    BasicBlock &ErrBB
-  );
+  void createCFGVerificationBB(BasicBlock &BB,
+                               std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
+                               std::unordered_map<BasicBlock *, int> &SubRanPrevVals,
+                               Value &RuntimeSig, Value &RetSig,
+                               BasicBlock &ErrBB);
 
 public:
   PreservedAnalyses run(Module &Md, ModuleAnalysisManager &);
