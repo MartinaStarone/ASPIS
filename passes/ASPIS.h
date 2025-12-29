@@ -160,8 +160,8 @@ class RACFED : public PassInfoMixin<RACFED> {
 private:
   std::map<Value *, StringRef> FuncAnnotations;
   std::map<BasicBlock *, BasicBlock *> NewBBs;
-  std::unordered_map<BasicBlock *, int> compileTimeSig;
-  std::unordered_map<BasicBlock *, int> subRanPrevVals;
+  std::unordered_map<BasicBlock *, uint32_t> compileTimeSig;
+  std::unordered_map<BasicBlock *, uint32_t> subRanPrevVals;
   std::unordered_map<BasicBlock *, uint64_t> sumIntraInstruction;
 
 
@@ -170,22 +170,30 @@ private:
 #endif
 
   // -- INITIALIZE BLOCKS --
-  void initializeBlocksSignatures(Module &Md);
+  void initializeBlocksSignatures(Module &Md, Function &Fn);
   // -- UPDATE COMPILE SIG RANDOM --
-  void updateCompileSigRandom(Function &F, Module &Md);
+  void updateCompileSigRandom(Module &Md, Function &Fn, 
+			      GlobalVariable *RuntimeSigGV, Type *IntType);
 
-  // -- CREATE CFG VERIFICATION --
+  // --- CHECK BLOCKS AT JUMP END ---
+  void checkCompileTimeSigAtJump(Module &Md, Function &Fn, 
+				 GlobalVariable *RuntimeSigGV, Type *IntType);
+
+  // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
+
+  void checkBranches(Module &Md,  GlobalVariable *RuntimeSigGV, Type *IntType, 
+		     IRBuilder<> B, BasicBlock &BB);
 
   void splitBBsAtCalls(Module &Md);
-  int countOriginalInstructions(BasicBlock &BB);
+  // int countOriginalInstructions(BasicBlock &BB);
   CallBase *isCallBB(BasicBlock &BB);
   void initializeEntryBlocksMap(Module &Md);
   Value *getCondition(Instruction &I);
-  void createCFGVerificationBB(BasicBlock &BB,
-                               std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
-                               std::unordered_map<BasicBlock *, int> &SubRanPrevVals,
-                               Value &RuntimeSig, Value &RetSig,
-                               BasicBlock &ErrBB);
+  // void createCFGVerificationBB(BasicBlock &BB,
+  //                              std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
+  //                              std::unordered_map<BasicBlock *, int> &SubRanPrevVals,
+  //                              Value &RuntimeSig, Value &RetSig,
+  //                              BasicBlock &ErrBB);
 
 public:
   PreservedAnalyses run(Module &Md, ModuleAnalysisManager &);

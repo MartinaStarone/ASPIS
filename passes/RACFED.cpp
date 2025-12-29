@@ -28,7 +28,6 @@ using namespace llvm;
 7:   if NrInstrBB > 2 then
 8:    for all original instructions insert after
 9:      signature ← signature + random number
-  * create CFG
   * checkCompileTimeSigAtJump
 10:for all BB in CFG insert at beginning
 11:  signature ← signature − subRanPrevVal
@@ -105,7 +104,8 @@ void RACFED::initializeBlocksSignatures(Module &Md, Function &Fn) {
 
 
 // --- UPDATE SIGNATURE RANDOM  ---
-void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> &OrigInstructions) {
+
+void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstructions) {
   for (Instruction &I : BB) {
     if (isa<PHINode>(&I)) continue; // NON è originale
     if (I.isTerminator()) continue; // NON è originale
@@ -114,21 +114,11 @@ void originalInstruction(BasicBlock &BB,  std::vector<Instruction*> &OrigInstruc
   }
 }
 
-void RACFED::updateCompileSigRandom(Module &Md, Function &Fn) {
-  LLVMContext &Ctx = Md.getContext();
-  GlobalVariable *SigGV = Md.getNamedGlobal("signature");
+void RACFED::updateCompileSigRandom(Module &Md, Function &Fn, 
+				    GlobalVariable *RuntimeSigGV, 
+				    Type *IntType) {
   std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
   std::uniform_int_distribution<uint32_t> dist(1, 0x7fffffff);
-  auto *I64 = Type::getInt64Ty(Ctx);
-  if (!SigGV) {
-    SigGV = new GlobalVariable(
-        Md,
-        I64,
-        /*isConstant=*/false,
-        GlobalValue::ExternalLinkage,
-        ConstantInt::get(I64, 0),
-        "signature");
-  }
 
   for (auto &BB: Fn){
     std::vector<Instruction*> OrigInstructions;
@@ -161,67 +151,22 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn) {
 
       sumIntraInstruction.insert(std::pair(&BB, partial_sum));
 
-      Value *OldSig = B.CreateLoad(I64, SigGV);
-      Value *Add = B.CreateAdd(OldSig, ConstantInt::get(I64, K), "sig_add");
-      B.CreateStore(Add, SigGV);
+      Value *OldSig = B.CreateLoad(IntType, RuntimeSigGV);
+      Value *Add = B.CreateAdd(OldSig, ConstantInt::get(IntType, K), "sig_add");
+      B.CreateStore(Add, RuntimeSigGV);
     }
   }
 
 }
 
-// --- CREATE CFG VERIFICATION ---
-ConstantInt *RACFED::expectedSignature(BasicBlock *Succ, Module &Md,
-                                       const std::unordered_map<BasicBlock *, int> &compileTimeSig,
-                                       const std::unordered_map<BasicBlock *, int> &subRanPrevVals) {
-  const int expected = compileTimeSig.at(Succ);
-  const int expectedSub = subRanPrevVals.at(Succ);
-  auto *I32 = Type::getInt32Ty(Md.getContext());
-  return ConstantInt:: get(I32, expected+expectedSub);
+// --- CHECK BLOCKS AT JUMP END ---
 
-}
-void RACFED:: checkBranches(IRBuilder<> B, BasicBlock &BB, Module &Md, GlobalVariable *RuntimeSigGV) {
-  Instruction *Term = BB.getTerminator();
-  auto *BI = dyn_cast<BranchInst>(Term);
-  if (!BI) return;
-  LLVMContext &Ctx = BB.getContext();
-  auto *I32 = Type::getInt32Ty(Ctx);
-  //load the current runtimevariable
-  Value *Current = B.CreateLoad(I32, RuntimeSigGV, "current");
-  Value *Expected = nullptr;
-
-//define if conditional or unconditional branch
-  //Conditional: expected= CT_succ+subRan_succ
-    //adj = CTB-exp--> new signature = RT -adj
-  if (BI -> isUnconditional()) {
-      BasicBlock *Succ = BI->getSuccessor(0);
-      auto expected = expectedSignature(Succ,Md,compileTimeSig,subRanPrevVals);
-     // adj = expected - current
-      Value *Adj = B.CreateSub(Expected, Current, "racfed.adj");
-      Value *NewSig = B.CreateAdd(Current, Adj, "racfed.newsig");
-      B.CreateStore(NewSig, RuntimeSigGV);
-
-      // verify newSig == expected
-      Value *Ok = B.CreateICmpEQ(NewSig, Expected, "racfed.ok");
-
-      // Replace terminator with condbr(ok, succ, ErrBB)
-      BI->eraseFromParent();
-      IRBuilder<> BT(&BB);
-      BT.CreateCondBr(Ok, Succ, nullptr);
-  }else {
-      BasicBlock *SuccT = BI->getSuccessor(0);
-      BasicBlock *SuccF = BI->getSuccessor(1);
-
-  }
-
-void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
-  auto *IntType = llvm::Type::getInt64Ty(Md.getContext());
-  
+void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, 
+				       GlobalVariable *RuntimeSigGV, Type *IntType) {
   BasicBlock *ErrBB = BasicBlock::Create(Fn.getContext(), "ErrBB", &Fn);
   IRBuilder<> ErrB(ErrBB);
 
   IRBuilder<> B(&*(Fn.front().getFirstInsertionPt()));
-
-  Value *RuntimeSig = B.CreateAlloca(IntType);
 
   for(BasicBlock &BB: Fn) {
     int randomNumberBB = compileTimeSig.find(&BB)->second;
@@ -234,18 +179,18 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
 	  BB.getName().contains_insensitive("verification")) {
 	IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
 	BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),
-			     RuntimeSig, true);
+			     RuntimeSigGV, true);
       } else if (!BB.getName().contains_insensitive("errbb")) {
 	BasicBlock *NewBB = BasicBlock::Create(
 	    BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
 	IRBuilder<> BChecker(NewBB);
 
 	// add instructions for the first runtime signature update
-	Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, RuntimeSig, true);
+	Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, RuntimeSigGV, true);
 
 	Value *RuntimeSignatureVal = BChecker.CreateSub(
 	    InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
-	BChecker.CreateStore(RuntimeSignatureVal, RuntimeSig, true);
+	BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV, true);
 
 	// update phi placing them in the new block
 	while (isa<PHINode>(&BB.front())) {
@@ -274,107 +219,163 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn) {
   }
 }
 
+// --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
 
-
-  //Conditional: compute the two adj and the signature that corresponds.
-}
-
-void RACFED::createCFGVerificationBB(
-    BasicBlock &BB, std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
-    std::unordered_map<BasicBlock *, int> &SubRanPrevVals, Value &RuntimeSig,
-    Value &RetSig, BasicBlock &ErrBB
+ConstantInt* expectedSignature(
+	BasicBlock *Succ, Module &Md,
+	const std::unordered_map<BasicBlock *, uint32_t> &compileTimeSig,
+	const std::unordered_map<BasicBlock *, uint32_t> &subRanPrevVals
 ) {
-
-  // checkCompileSigAtJump() NON ENTRY BLOCK
-  // compileTimeSig - subRunPrevVal
-  // if compileTimeSig != runtime_sig error()
-
-  auto *IntType = llvm::Type::getInt64Ty(BB.getContext());
-
-  int randomNumberBB = RandomNumberBBs.find(&BB)->second;
-  int subRanPrevVal = SubRanPrevVals.find(&BB)->second;
-
-
-  // checkReturnVal()
-  // compute returnValue
-  // compute adjValue
-  // runtime_sig = runtime_sig + adjValue
-
-
-  // checkBranchJump()
-  // compute adjValue
-  // runtime_sig = runtime_sig + adjValue
-
-  // update the signature for the successors
-  int randomNumberBB_succ;
-  int subRanPrevVal_succ;
-
-  Instruction *Term = BB.getTerminator();
-  int successors = Term->getNumSuccessors();
-
-  for (int i = 0; i < successors; i++) {
-    BasicBlock *Succ = Term->getSuccessor(i);
-    if (!Succ->getName().contains_insensitive("errbb")) {
-      randomNumberBB_succ = RandomNumberBBs.find(Succ)->second;
-      subRanPrevVal_succ = randomNumberBB - randomNumberBB_succ;
-
-      // update the map
-      if (SubRanPrevVals.find(Succ)->second == 1) {
-        SubRanPrevVals.erase(Succ);
-        SubRanPrevVals.insert(
-            std::pair<BasicBlock *, int>(Succ, subRanPrevVal_succ));
-      } else {
-        // if the successor has already been visited, we have to check if the
-        // signature is consistent
-        if (SubRanPrevVals.find(Succ)->second != subRanPrevVal_succ) {
-          // if not, we have to update the signature
-          int diff = subRanPrevVal_succ - SubRanPrevVals.find(Succ)->second;
-          IRBuilder<> B(&*BB.getFirstInsertionPt());
-          if (isa<BranchInst>(Term) &&
-              cast<BranchInst>(Term)->isConditional()) {
-            // if the terminator is a conditional branch, we have to update the
-            // signature only if the condition is true or false, depending on
-            // the successor
-            B.SetInsertPoint(Term);
-          } else {
-            B.SetInsertPoint(Term);
-          }
-
-        }
-      }
-    }
-  }
-
-  // Handle return instructions
-  // if (isa<ReturnInst>(Term)) {
-  //   BasicBlock *RetVerificationBB = BasicBlock::Create(
-  //       BB.getContext(), "RACFED_ret_Verification_BB", BB.getParent(), &BB);
-  //   // Move instructions from BB to RetVerificationBB, except the verification
-  //   // logic we just added? No, we want to verify BEFORE return. Actually, the
-  //   // verification block is already added at the beginning of BB. Now we want
-  //   // to update signature before return? RASM updates signature at exit?
-  //
-  //
-  //
-  //   IRBuilder<> BRet(RetVerificationBB);
-  //   Value *InstrRuntimeSig = BRet.CreateLoad(IntType, &RuntimeSig, true);
-  //   Value *InstrRetSig = BRet.CreateLoad(IntType, &RetSig, true);
-  //
-  //   // In RASM/RACFED, we might check if RuntimeSig matches RetSig (or some
-  //   // derived value) at return. For now, let's just check if they are
-  //   // consistent. But RetSig is initialized to RandomNumberBBs.size() +
-  //   // currSig.
-  //
-  //   // Let's stick to the basic block verification for now.
-  // }
+  const int expected = compileTimeSig.at(Succ);
+  const int expectedSub = subRanPrevVals.at(Succ);
+  auto *I32 = Type::getInt32Ty(Md.getContext());
+  return ConstantInt:: get(I32, expected+expectedSub);
 }
+
+void RACFED::checkBranches(Module &Md,  GlobalVariable *RuntimeSigGV,
+			   Type *IntType,	IRBuilder<> B, BasicBlock &BB) {
+  Instruction *Term = BB.getTerminator();
+  auto *BI = dyn_cast<BranchInst>(Term);
+  if (!BI) return;
+
+  //load the current runtimevariable
+  Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
+  Value *Expected = nullptr;
+
+//define if conditional or unconditional branch
+  //Conditional: expected= CT_succ+subRan_succ
+    //adj = CTB-exp--> new signature = RT -adj
+  if (BI -> isUnconditional()) {
+      BasicBlock *Succ = BI->getSuccessor(0);
+      auto expected = expectedSignature(Succ,Md,compileTimeSig,subRanPrevVals);
+     // adj = expected - current
+      Value *Adj = B.CreateSub(Expected, Current, "racfed.adj");
+      Value *NewSig = B.CreateAdd(Current, Adj, "racfed.newsig");
+      B.CreateStore(NewSig, RuntimeSigGV);
+
+      // verify newSig == expected
+      Value *Ok = B.CreateICmpEQ(NewSig, Expected, "racfed.ok");
+
+      // Replace terminator with condbr(ok, succ, ErrBB)
+      BI->eraseFromParent();
+      IRBuilder<> BT(&BB);
+      BT.CreateCondBr(Ok, Succ, nullptr);
+  } else {
+      BasicBlock *SuccT = BI->getSuccessor(0);
+      BasicBlock *SuccF = BI->getSuccessor(1);
+  }
+}
+
+//Conditional: compute the two adj and the signature that corresponds.
+//
+// void RACFED::createCFGVerificationBB(
+//     BasicBlock &BB, std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
+//     std::unordered_map<BasicBlock *, int> &SubRanPrevVals, Value &RuntimeSig,
+//     Value &RetSig, BasicBlock &ErrBB
+// ) {
+//
+//   // checkCompileSigAtJump() NON ENTRY BLOCK
+//   // compileTimeSig - subRunPrevVal
+//   // if compileTimeSig != runtime_sig error()
+//
+//   auto *IntType = llvm::Type::getInt64Ty(BB.getContext());
+//
+//   int randomNumberBB = RandomNumberBBs.find(&BB)->second;
+//   int subRanPrevVal = SubRanPrevVals.find(&BB)->second;
+//
+//
+//   // checkReturnVal()
+//   // compute returnValue
+//   // compute adjValue
+//   // runtime_sig = runtime_sig + adjValue
+//
+//
+//   // checkBranchJump()
+//   // compute adjValue
+//   // runtime_sig = runtime_sig + adjValue
+//
+//   // update the signature for the successors
+//   int randomNumberBB_succ;
+//   int subRanPrevVal_succ;
+//
+//   Instruction *Term = BB.getTerminator();
+//   int successors = Term->getNumSuccessors();
+//
+//   for (int i = 0; i < successors; i++) {
+//     BasicBlock *Succ = Term->getSuccessor(i);
+//     if (!Succ->getName().contains_insensitive("errbb")) {
+//       randomNumberBB_succ = RandomNumberBBs.find(Succ)->second;
+//       subRanPrevVal_succ = randomNumberBB - randomNumberBB_succ;
+//
+//       // update the map
+//       if (SubRanPrevVals.find(Succ)->second == 1) {
+//         SubRanPrevVals.erase(Succ);
+//         SubRanPrevVals.insert(
+//             std::pair<BasicBlock *, int>(Succ, subRanPrevVal_succ));
+//       } else {
+//         // if the successor has already been visited, we have to check if the
+//         // signature is consistent
+//         if (SubRanPrevVals.find(Succ)->second != subRanPrevVal_succ) {
+//           // if not, we have to update the signature
+//           int diff = subRanPrevVal_succ - SubRanPrevVals.find(Succ)->second;
+//           IRBuilder<> B(&*BB.getFirstInsertionPt());
+//           if (isa<BranchInst>(Term) &&
+//               cast<BranchInst>(Term)->isConditional()) {
+//             // if the terminator is a conditional branch, we have to update the
+//             // signature only if the condition is true or false, depending on
+//             // the successor
+//             B.SetInsertPoint(Term);
+//           } else {
+//             B.SetInsertPoint(Term);
+//           }
+//
+//         }
+//       }
+//     }
+//   }
+//
+//   Handle return instructions
+//   if (isa<ReturnInst>(Term)) {
+//     BasicBlock *RetVerificationBB = BasicBlock::Create(
+//         BB.getContext(), "RACFED_ret_Verification_BB", BB.getParent(), &BB);
+//     // Move instructions from BB to RetVerificationBB, except the verification
+//     // logic we just added? No, we want to verify BEFORE return. Actually, the
+//     // verification block is already added at the beginning of BB. Now we want
+//     // to update signature before return? RASM updates signature at exit?
+//
+//
+//
+//     IRBuilder<> BRet(RetVerificationBB);
+//     Value *InstrRuntimeSig = BRet.CreateLoad(IntType, &RuntimeSig, true);
+//     Value *InstrRetSig = BRet.CreateLoad(IntType, &RetSig, true);
+//
+//     // In RASM/RACFED, we might check if RuntimeSig matches RetSig (or some
+//     // derived value) at return. For now, let's just check if they are
+//     // consistent. But RetSig is initialized to RandomNumberBBs.size() +
+//     // currSig.
+//
+//     // Let's stick to the basic block verification for now.
+//   }
+// }
 
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   // mappa: istruzione originale -> random r usato per S = S + r
   std::unordered_map<llvm::Instruction*, int> InstrUpdates;
-  auto *IntType = llvm::Type::getInt32Ty(Md.getContext());
+  auto *I64 = llvm::Type::getInt64Ty(Md.getContext());
+  auto *I32 = llvm::Type::getInt32Ty(Md.getContext());
   std::unordered_map<Function*, BasicBlock*> ErrBBs;
+
+  GlobalVariable *RuntimeSig = Md.getNamedGlobal("signature");
+  if (!RuntimeSig) {
+    RuntimeSig = new GlobalVariable(
+        Md,
+        I64,
+        /*isConstant=*/false,
+        GlobalValue::ExternalLinkage,
+        ConstantInt::get(I64, 0),
+        "signature");
+  }
 
   // createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
@@ -386,11 +387,11 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   }
 
   for (Function &Fn: Md) {
-    updateCompileSigRandom(Md, Fn);
+    updateCompileSigRandom(Md, Fn, RuntimeSig, I64);
   }
 
   for(Function &Fn: Md) {
-    checkCompileTimeSigAtJump(Md, Fn);
+    checkCompileTimeSigAtJump(Md, Fn, RuntimeSig, I64);
   }
 
   // createCFGVerificationBB();
