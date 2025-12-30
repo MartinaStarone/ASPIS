@@ -160,60 +160,69 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn,
 }
 
 // --- CHECK BLOCKS AT JUMP END ---
-
 void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, 
 				       GlobalVariable *RuntimeSigGV, Type *IntType) {
+
+  if (Fn.isDeclaration()||Fn.empty()) {
+    return;
+  }
   BasicBlock *ErrBB = BasicBlock::Create(Fn.getContext(), "ErrBB", &Fn);
   IRBuilder<> ErrB(ErrBB);
 
   IRBuilder<> B(&*(Fn.front().getFirstInsertionPt()));
+  ErrB.CreateUnreachable();
+  std::vector<BasicBlock *> BBs;
 
-  for(BasicBlock &BB: Fn) {
-    int randomNumberBB = compileTimeSig.find(&BB)->second;
-    int subRanPrevVal = subRanPrevVals.find(&BB)->second;
- 
-    // in this case BB is not the first Basic Block of the function, so it has to
-    // update RuntimeSig and check it
+  for (BasicBlock &BB : Fn)
+    BBs.push_back(&BB);
+
+  for (BasicBlock *BBPtr : BBs) {
+    BasicBlock &BB = *BBPtr;
+    // in this case BB is not the first Basic Block of the function, so it has
+    // to update RuntimeSig and check it
     if (!BB.isEntryBlock()) {
-      if (isa<LandingPadInst>(BB.getFirstNonPHI()) ||
-	  BB.getName().contains_insensitive("verification")) {
-	IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
-	BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),
-			     RuntimeSigGV, true);
+      Instruction *FirstNonPHI = BB.getFirstNonPHI();
+      if ((FirstNonPHI && isa<LandingPadInst>(FirstNonPHI)) ||
+          BB.getName().contains_insensitive("verification")) {
+        if (BB.getFirstInsertionPt() == BB.end())
+          continue; // Skip empty/invalid blocks
+        int randomNumberBB = compileTimeSig.find(&BB)->second;
+        IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
+        BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),
+                             RuntimeSigGV, true);
       } else if (!BB.getName().contains_insensitive("errbb")) {
-	BasicBlock *NewBB = BasicBlock::Create(
-	    BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
-	IRBuilder<> BChecker(NewBB);
+        int randomNumberBB = compileTimeSig.find(&BB)->second;
+        int subRanPrevVal = subRanPrevVals.find(&BB)->second;
+        BasicBlock *NewBB = BasicBlock::Create(
+            BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
+        IRBuilder<> BChecker(NewBB);
 
-	// add instructions for the first runtime signature update
-	Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, RuntimeSigGV, true);
+        // add instructions for the first runtime signature update
+        Value *InstrRuntimeSig =
+            BChecker.CreateLoad(IntType, RuntimeSigGV, true);
 
-	Value *RuntimeSignatureVal = BChecker.CreateSub(
-	    InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
-	BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV, true);
+        Value *RuntimeSignatureVal = BChecker.CreateSub(
+            InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
+        BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV, true);
 
-	// update phi placing them in the new block
-	while (isa<PHINode>(&BB.front())) {
-	  Instruction *PhiInst = &BB.front();
-	  PhiInst->removeFromParent();
-	  PhiInst->insertBefore(&NewBB->front());
-	}
+        // update phi placing them in the new block
+        while (isa<PHINode>(&BB.front())) {
+          Instruction *PhiInst = &BB.front();
+          PhiInst->removeFromParent();
+          PhiInst->insertBefore(&NewBB->front());
+        }
 
-	// replace the uses of BB with NewBB
-	for (BasicBlock &BB_ : *BB.getParent()) {
-	  if (&BB_ != NewBB) {
-	    BB_.getTerminator()->replaceSuccessorWith(&BB, NewBB);
-	  }
-	}
+        // replace the uses of BB with NewBB
+        BB.replaceAllUsesWith(NewBB);
 
-	// add instructions for checking the runtime signature
-	Value *CmpVal =
-	    BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
-			       llvm::ConstantInt::get(IntType, randomNumberBB));
-	BChecker.CreateCondBr(CmpVal, &BB, ErrBB);
+        // add instructions for checking the runtime signature
+        Value *CmpVal =
+            BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
+                               llvm::ConstantInt::get(IntType, randomNumberBB));
+        BChecker.CreateCondBr(CmpVal, &BB, ErrBB);
 
-	// add NewBB and BB into the NewBBs map
-	NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
+        // add NewBB and BB into the NewBBs map
+        NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
       }
     }
   }
