@@ -176,24 +176,25 @@ private:
 			      GlobalVariable *RuntimeSigGV, Type *IntType);
 
   // --- CHECK BLOCKS AT JUMP END ---
-  void checkCompileTimeSigAtJump(Module &Md, Function &Fn, 
-				 GlobalVariable *RuntimeSigGV, Type *IntType);
+  void checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
+				 GlobalVariable *RuntimeSigGV, Type *IntType,
+				 BasicBlock &ErrBB);
 
   // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
+  void checkBranches(Module &Md, BasicBlock &BB, GlobalVariable *RuntimeSigGV, 
+		     Type *IntType);
 
-  void checkBranches(Module &Md,  GlobalVariable *RuntimeSigGV, Type *IntType, 
-		     IRBuilder<> B, BasicBlock &BB);
+  // --- UPDATE RETURN VALUE AND CHECK ---
+  void checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB, 
+			GlobalVariable *RuntimeSigGV, 
+			Type *IntType, BasicBlock &ErrBB,
+			Value *BckupRunSig);
 
-  void splitBBsAtCalls(Module &Md);
-  // int countOriginalInstructions(BasicBlock &BB);
-  CallBase *isCallBB(BasicBlock &BB);
-  void initializeEntryBlocksMap(Module &Md);
-  Value *getCondition(Instruction &I);
-  // void createCFGVerificationBB(BasicBlock &BB,
-  //                              std::unordered_map<BasicBlock *, int> &RandomNumberBBs,
-  //                              std::unordered_map<BasicBlock *, int> &SubRanPrevVals,
-  //                              Value &RuntimeSig, Value &RetSig,
-  //                              BasicBlock &ErrBB);
+
+  // void splitBBsAtCalls(Module &Md);
+  // CallBase *isCallBB(BasicBlock &BB);
+  // void initializeEntryBlocksMap(Module &Md);
+  // Value *getCondition(Instruction &I);
 
 public:
   PreservedAnalyses run(Module &Md, ModuleAnalysisManager &);
