@@ -13,7 +13,7 @@
 #define INTRA_FUNCTION_CFC 0 // Default to 0 if not defined
 
 #define MARTI_DEBUG true
-#define GAMBA_DEBUG true
+#define GAMBA_DEBUG false
 
 using namespace llvm;
 
@@ -213,46 +213,51 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
 }
 
 // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
-ConstantInt* expectedSignature(
-	BasicBlock *Succ, Module &Md,
+Constant* expectedSignature(
+	BasicBlock *Succ, Type *IntType,
 	const std::unordered_map<BasicBlock *, uint32_t> &compileTimeSig,
 	const std::unordered_map<BasicBlock *, uint32_t> &subRanPrevVals
 ) {
   const int expected = compileTimeSig.at(Succ);
   const int expectedSub = subRanPrevVals.at(Succ);
-  auto *I32 = Type::getInt32Ty(Md.getContext());
-  return ConstantInt:: get(I32, expected+expectedSub);
+  return ConstantInt::get(IntType, expected+expectedSub);
 }
-
+/*
+* checkJump
+23:   for all Successor of BB do
+24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
+25:     (compileTimeSigsuccs + subRanPrevValsuccs)
+26:   Insert signature update at BB end
+27:     signature ← signature + adjustValue
+*/
 void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
-			   Type *IntType) {
+			   Type *IntType, BasicBlock &ErrBB) {
   Instruction *Term = BB.getTerminator();
   IRBuilder<> B(&BB);
   auto *BI = dyn_cast<BranchInst>(Term);
   if (!BI) return;
 
-  //load the current runtimevariable
-  Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
-  Value *Expected = nullptr;
 
-//define if conditional or unconditional branch
+  //define if conditional or unconditional branch
   //Conditional: expected= CT_succ+subRan_succ
-    //adj = CTB-exp--> new signature = RT -adj
-  if ( BI->isUnconditional() ) {
+  //adj = CTB-exp--> new signature = RT -adj
+  if ( BI->isUnconditional() ) { // only one successor
+      //load the current runtimevariable
+      Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
       BasicBlock *Succ = BI->getSuccessor(0);
-      auto expected = expectedSignature(Succ,Md,compileTimeSig,subRanPrevVals);
-     // adj = expected - current
-      Value *Adj = B.CreateSub(Expected, Current, "racfed.adj");
-      Value *NewSig = B.CreateAdd(Current, Adj, "racfed.newsig");
+      auto expected = expectedSignature(Succ,IntType,compileTimeSig,subRanPrevVals);
+      // adj = expected - current
+      Value *Adj = B.CreateSub(expected, Current, "racfed_adj");
+      Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
       B.CreateStore(NewSig, RuntimeSigGV);
 
       // verify newSig == expected
-      Value *Ok = B.CreateICmpEQ(NewSig, Expected, "racfed.ok");
+      Value *Ok = B.CreateICmpEQ(NewSig, expected, "racfed_ok");
 
       // Replace terminator with condbr(ok, succ, ErrBB)
       BI->eraseFromParent();
       IRBuilder<> BT(&BB);
-      BT.CreateCondBr(Ok, Succ, nullptr);
+      BT.CreateCondBr(Ok, Succ, &ErrBB);
   } else {
       BasicBlock *SuccT = BI->getSuccessor(0);
       BasicBlock *SuccF = BI->getSuccessor(1);
@@ -261,10 +266,6 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
 
 
 // --- CHECK RETURN UPDATE VALUE ---
-void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
-			      GlobalVariable *RuntimeSigGV, 
-			      Type* IntType, BasicBlock &ErrBB,
-			      Value *BckupRunSig) {
 // checkRetVal:
 //
 // 14: if Last Instr. is return instr. and NrIntrBB > 1 then
@@ -275,6 +276,10 @@ void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
 // 19:   Insert signature update before return instr.
 // 20:     signature ← signature + adjustValue
 // 21:     if signature != returnVal error()
+void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
+			      GlobalVariable *RuntimeSigGV, 
+			      Type* IntType, BasicBlock &ErrBB,
+			      Value *BckupRunSig) {
   Instruction *Term = BB.getTerminator();
 
   if( !isa<ReturnInst>(Term) ) return;
@@ -360,7 +365,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   for(Function &Fn: Md) {
     if(!shouldCompile(Fn, FuncAnnotations)) continue;
 
-    #if GAMBA_DEBUG
+    #if GAMBA_DEBUG || MARTI_DEBUG
     errs() << "Analysing func " << Fn.getName() << "\n";
     #endif
 
@@ -387,22 +392,22 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     ErrIR.CreateCall(CalleeF)->setDebugLoc(debugLoc);
     ErrIR.CreateUnreachable();
 
-    Value * runtime_sign_bkup;
+    Value * runtime_sign_bkup = nullptr;
     for (BasicBlock &BB : Fn) {
       // TODO: Should the error basic block that is inserted be checked?
-
       // Backup of compile time sign when entering a function
       if( BB.isEntryBlock() ) {
-	IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	runtime_sign_bkup = 
-	  InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
-	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]), 
-		  RuntimeSig);
+	      IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
+	      runtime_sign_bkup =
+	        InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	      InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
+
+	      RuntimeSig);
       }
 
       // checkCompileTimeSigAtJump(Md, Fn, BB, RuntimeSig, I64, *ErrBB);
       checkReturnValue(Md, Fn, BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
-      checkBranches(Md, BB, RuntimeSig, I64);
+      checkBranches(Md, BB, RuntimeSig, I64, *ErrBB);
     }
   }
 

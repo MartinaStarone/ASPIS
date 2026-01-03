@@ -182,7 +182,7 @@ private:
 
   // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
   void checkBranches(Module &Md, BasicBlock &BB, GlobalVariable *RuntimeSigGV, 
-		     Type *IntType);
+		     Type *IntType, BasicBlock &ErrBB);
 
   // --- UPDATE RETURN VALUE AND CHECK ---
   void checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB, 
