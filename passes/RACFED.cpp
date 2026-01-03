@@ -10,7 +10,6 @@
 #define INIT_SIGNATURE                                                         \
   -0xDEAD // The same value has to be used as initializer for the signatures in
           // the code
-#define INTRA_FUNCTION_CFC 0 // Default to 0 if not defined
 
 #define MARTI_DEBUG true
 #define GAMBA_DEBUG false
@@ -54,7 +53,7 @@ using namespace llvm;
 
 std::uniform_int_distribution<uint32_t> dist32(1, 0x7fffffff);
 std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
-std::mt19937 rng64(0x5EED00); // seed fisso per riproducibilità
+std::mt19937 rng64(0x5EED00); // constant seed for reproducibility
 
 // --- INITIALIZE BLOCKS RANDOM ---
 bool isNotUniqueCompileTimeSig(
@@ -83,7 +82,7 @@ bool isNotUnique(
 }
 
 void RACFED::initializeBlocksSignatures(Module &Md, Function &Fn) {
-  std::mt19937 rng(0xB00BA5); // seed fisso per riproducibilità
+  std::mt19937 rng(0xB00BA5); // constant seed for reproducibility
   uint32_t randomBB;
   uint32_t randomSub;
 
@@ -286,51 +285,54 @@ void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
 
   std::vector<Instruction*> org_instr;
   originalInstruction(BB, org_instr);
-  if( org_instr.size() <= 2 ) return;
+  if( org_instr.size() > 2 ) {
 
-  // Splits the BB that contains the return instruction into
-  // two basic blocks:
-  // BB will contain the return instruction
-  // BeforeRetBB will contain all of the instructions before the return one
-  //
-  // These two BBs will be linked meaning that BeforeRetBB->successor == BB
-  BasicBlock *BeforeRetBB = BB.splitBasicBlockBefore(Term);
+    // Splits the BB that contains the return instruction into
+    // two basic blocks:
+    // BB will contain the return instruction
+    // BeforeRetBB will contain all of the instructions before the return one
+    //
+    // These two BBs will be linked meaning that BeforeRetBB->successor == BB
+    BasicBlock *BeforeRetBB = BB.splitBasicBlockBefore(Term);
 
-  // Creating control basic block to insert before
-  // the return instruction
-  BasicBlock *ControlBB = BasicBlock::Create(
-    Md.getContext(), 
-    "RAFCED_ret_verification_BB", 
-    &Fn,
-    &BB
-  );
+    // Creating control basic block to insert before
+    // the return instruction
+    BasicBlock *ControlBB = BasicBlock::Create(
+      Md.getContext(), 
+      "RAFCED_ret_verification_BB", 
+      &Fn,
+      &BB
+    );
 
-  // Relinking the basic blocks so that the structure 
-  // results in: BeforeRetBB->ControlBB->BB
-  BeforeRetBB->getTerminator()->replaceSuccessorWith(&BB, ControlBB);
+    // Relinking the basic blocks so that the structure 
+    // results in: BeforeRetBB->ControlBB->BB
+    BeforeRetBB->getTerminator()->replaceSuccessorWith(&BB, ControlBB);
 
-  // Inserting instructions into ControlBB
-  IRBuilder<> B(ControlBB);
-  // 15:   Calculate needed variables
-  // 16:     returnVal ← random number
-  // 17:     adjustValue ← (compileTimeSigBB + Sum) -
-  // 18:                 returnVal
-  uint64_t random_ret_value = dist64(rng64);
-  // This is a 64 bit SIGNED integer (cause a subtraction happens
-  // and it cannot previously be established that it will be positive)
-  long int adj_value = compileTimeSig[&BB] + sumIntraInstruction[&BB] 
-    - random_ret_value;
+    // Inserting instructions into ControlBB
+    IRBuilder<> ControlIR(ControlBB);
+    // 15:   Calculate needed variables
+    // 16:     returnVal ← random number
+    // 17:     adjustValue ← (compileTimeSigBB + Sum) -
+    // 18:                 returnVal
+    uint64_t random_ret_value = dist64(rng64);
+    // This is a 64 bit SIGNED integer (cause a subtraction happens
+    // and it cannot previously be established that it will be positive)
+    long int adj_value = compileTimeSig[&BB] + sumIntraInstruction[&BB] 
+      - random_ret_value;
 
-  // 19:   Insert signature update before return instr.
-  // 20:     signature ← signature + adjustValue // wrong must be subtracted
-  // 21:     if signature != returnVal error()
-  Value *Sig = B.CreateLoad(IntType, RuntimeSigGV, true, "checking_sign");
-  Value *CmpVal = B.CreateSub(Sig, llvm::ConstantInt::get(IntType, adj_value), "checking_value");
-  Value *CmpSig = B.CreateCmp(llvm::CmpInst::ICMP_EQ, CmpVal, 
-			      llvm::ConstantInt::get(IntType, random_ret_value));
+    // 19:   Insert signature update before return instr.
+    // 20:     signature ← signature + adjustValue // wrong must be subtracted
+    // 21:     if signature != returnVal error()
+    Value *Sig = ControlIR.CreateLoad(IntType, RuntimeSigGV, true, "checking_sign");
+    Value *CmpVal = ControlIR.CreateSub(Sig, llvm::ConstantInt::get(IntType, adj_value), "checking_value");
+    Value *CmpSig = ControlIR.CreateCmp(llvm::CmpInst::ICMP_EQ, CmpVal, 
+				llvm::ConstantInt::get(IntType, random_ret_value));
 
-  if( !Fn.getName().contains("main") ) B.CreateStore(BckupRunSig, RuntimeSigGV);
-  B.CreateCondBr(CmpSig, &BB, &ErrBB);
+    ControlIR.CreateCondBr(CmpSig, &BB, &ErrBB);
+  }
+
+  IRBuilder<> RetInstIR(Term);
+  RetInstIR.CreateStore(BckupRunSig, RuntimeSigGV);
 }
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
@@ -373,8 +375,8 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     DebugLoc debugLoc;
     for (auto &I : Fn.front()) {
       if (I.getDebugLoc()) {
-     	debugLoc = I.getDebugLoc();
-      	break;
+	debugLoc = I.getDebugLoc();
+	break;
       } 
     }
  
@@ -397,12 +399,11 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       // TODO: Should the error basic block that is inserted be checked?
       // Backup of compile time sign when entering a function
       if( BB.isEntryBlock() ) {
-	      IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	      runtime_sign_bkup =
-	        InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
-	      InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
-
-	      RuntimeSig);
+	IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
+	runtime_sign_bkup =
+	  InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
+		     RuntimeSig);
       }
 
       // checkCompileTimeSigAtJump(Md, Fn, BB, RuntimeSig, I64, *ErrBB);
