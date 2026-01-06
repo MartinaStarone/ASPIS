@@ -200,6 +200,20 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
     // replace the uses of BB with NewBB
     BB.replaceAllUsesWith(NewBB);
 
+    // Fix PHI nodes in successors
+    // replaceAllUsesWith updates PHI nodes in successors to point to NewBB,
+    // but the actual control flow is NewBB -> BB -> Succ, so Succ still sees BB
+    // as predecessor.
+    for (BasicBlock *Succ : successors(&BB)) {
+      for (PHINode &Phi : Succ->phis()) {
+        for (unsigned i = 0; i < Phi.getNumIncomingValues(); ++i) {
+          if (Phi.getIncomingBlock(i) == NewBB) {
+            Phi.setIncomingBlock(i, &BB);
+          }
+        }
+      }
+    }
+
     // add instructions for checking the runtime signature
     Value *CmpVal =
     BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
@@ -208,6 +222,11 @@ void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
 
     // add NewBB and BB into the NewBBs map
     NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
+
+    // Map NewBB to the same signature requirements as BB so predecessors can
+    // target it correctly
+    compileTimeSig[NewBB] = randomNumberBB;
+    subRanPrevVals[NewBB] = subRanPrevVal;
   }
 }
 
@@ -229,39 +248,115 @@ Constant* expectedSignature(
 26:   Insert signature update at BB end
 27:     signature ← signature + adjustValue
 */
+Value *RACFED::getCondition(Instruction &I) {
+  if (isa<BranchInst>(I) && cast<BranchInst>(I).isConditional()) {
+    if (!cast<BranchInst>(I).isConditional()) {
+      return nullptr;
+    } else {
+      return cast<BranchInst>(I).getCondition();
+    }
+  } else if (isa<SwitchInst>(I)) {
+    errs() << "There is a switch!\n";
+    abort();
+    return cast<SwitchInst>(I).getCondition();
+  } else {
+    assert(false && "Tried to get a condition on a function that is not a "
+                    "branch or a switch");
+  }
+}
+
+static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg) {
+  LLVMContext &Ctx = Md.getContext();
+
+  // int printf(const char*, ...)
+  FunctionCallee Printf = Md.getOrInsertFunction(
+      "printf",
+      FunctionType::get(IntegerType::getInt32Ty(Ctx),
+                        PointerType::getUnqual(Ctx),
+                        true));
+
+  // Crea stringa globale "Msg: %ld\n"
+  std::string Fmt = std::string(Msg) + ": %ld\n";
+  Value *FmtStr = B.CreateGlobalStringPtr(Fmt);
+
+
+  if (SigVal->getType()->isIntegerTy(32)) {
+    SigVal = B.CreateZExt(SigVal, Type::getInt64Ty(Ctx));
+  }
+
+  B.CreateCall(Printf, {FmtStr, SigVal});
+}
+
 void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
 			   Type *IntType, BasicBlock &ErrBB) {
   Instruction *Term = BB.getTerminator();
   IRBuilder<> B(&BB);
+  B.SetInsertPoint(Term);
   auto *BI = dyn_cast<BranchInst>(Term);
   if (!BI) return;
 
+  //TODO: check this
+
+  // Calculate Source Static Signature: CT_BB + SumIntra
+  uint64_t SourceStatic =
+      (uint64_t)compileTimeSig[&BB] + sumIntraInstruction[&BB];
+
+  Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
+  printSig(Md, B, Current, "current");
+
+  //TODO: until here
 
   //define if conditional or unconditional branch
   //Conditional: expected= CT_succ+subRan_succ
   //adj = CTB-exp--> new signature = RT -adj
-  if ( BI->isUnconditional() ) { // only one successor
-      //load the current runtimevariable
-      Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
+  if ( BI->isUnconditional() ){  // only one successor
       BasicBlock *Succ = BI->getSuccessor(0);
-      auto expected = expectedSignature(Succ,IntType,compileTimeSig,subRanPrevVals);
+      uint64_t Expected =
+            (uint64_t)compileTimeSig[Succ] + (uint64_t)subRanPrevVals[Succ];;
       // adj = expected - current
-      Value *Adj = B.CreateSub(expected, Current, "racfed_adj");
+      uint64_t AdjValue = Expected - SourceStatic;
+      Value *Adj = ConstantInt::get(IntType, AdjValue);
+      Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
+      B.CreateStore(NewSig, RuntimeSigGV);
+      printSig(Md,B, NewSig, "newsig");
+      // verify newSig == expected
+      Value *ExpectedVal = ConstantInt::get(IntType, Expected);
+      Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
+
+      return;
+    }
+  if ( BI-> isConditional()) {
+      BasicBlock *SuccT = BI->getSuccessor(0);
+      BasicBlock *SuccF = BI->getSuccessor(1);
+      Instruction *Terminator = BB.getTerminator();
+      Value *BrCondition = getCondition(*Terminator);
+
+      // Target T
+      uint64_t expectedT =
+          (uint64_t)compileTimeSig[SuccT] + (uint64_t)subRanPrevVals[SuccT];
+      uint64_t adj1 = expectedT - SourceStatic;
+
+      // Target F
+      uint64_t expectedF =
+          (uint64_t)compileTimeSig[SuccF] + (uint64_t)subRanPrevVals[SuccF];
+      uint64_t adj2 = expectedF - SourceStatic;
+
+      Value *Adj = B.CreateSelect(BrCondition, ConstantInt::get(IntType, adj1), ConstantInt::get(IntType, adj2));
       Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
       B.CreateStore(NewSig, RuntimeSigGV);
 
-      // verify newSig == expected
-      Value *Ok = B.CreateICmpEQ(NewSig, expected, "racfed_ok");
+      printSig(Md, B, NewSig, "SIG after cond");
+       Value *ExpectedVal = B.CreateSelect(
+          BrCondition, ConstantInt::get(IntType, expectedT),
+          ConstantInt::get(IntType, expectedF), "expected_sig");
+      Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
 
-      // Replace terminator with condbr(ok, succ, ErrBB)
-      BI->eraseFromParent();
-      IRBuilder<> BT(&BB);
-      BT.CreateCondBr(Ok, Succ, &ErrBB);
-  } else {
-      BasicBlock *SuccT = BI->getSuccessor(0);
-      BasicBlock *SuccF = BI->getSuccessor(1);
+    return;
+
+
   }
 }
+
 
 
 // --- CHECK RETURN UPDATE VALUE ---
@@ -406,7 +501,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 		     RuntimeSig);
       }
 
-      // checkCompileTimeSigAtJump(Md, Fn, BB, RuntimeSig, I64, *ErrBB);
+      checkCompileTimeSigAtJump(Md, Fn, BB, RuntimeSig, I64, *ErrBB);
       checkReturnValue(Md, Fn, BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
       checkBranches(Md, BB, RuntimeSig, I64, *ErrBB);
     }

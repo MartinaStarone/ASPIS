@@ -180,6 +180,8 @@ private:
 				 GlobalVariable *RuntimeSigGV, Type *IntType,
 				 BasicBlock &ErrBB);
 
+  Value *getCondition(Instruction &I);
+
   // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
   void checkBranches(Module &Md, BasicBlock &BB, GlobalVariable *RuntimeSigGV, 
 		     Type *IntType, BasicBlock &ErrBB);
