@@ -159,9 +159,9 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn,
 // FIXME: Check this function to comply with the decisions made in design
 //
 // FIXME: Fix warnings
-void RACFED::checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
-				       GlobalVariable *RuntimeSigGV, Type *IntType,
-				       BasicBlock &ErrBB) {
+void RACFED::checkJumpSignature(BasicBlock &BB,
+				GlobalVariable *RuntimeSigGV, Type *IntType,
+				BasicBlock &ErrBB) {
   if( BB.isEntryBlock() ) return;
 
   // in this case BB is not the first Basic Block of the function, so it has
@@ -319,6 +319,7 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
       Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
       B.CreateStore(NewSig, RuntimeSigGV);
       printSig(Md,B, NewSig, "newsig");
+      // FIXME: Should compare neither branch
       // verify newSig == expected
       Value *ExpectedVal = ConstantInt::get(IntType, Expected);
       Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
@@ -352,8 +353,6 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
       Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
 
     return;
-
-
   }
 }
 
@@ -370,13 +369,13 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
 // 19:   Insert signature update before return instr.
 // 20:     signature ← signature + adjustValue
 // 21:     if signature != returnVal error()
-void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
+Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 			      GlobalVariable *RuntimeSigGV, 
 			      Type* IntType, BasicBlock &ErrBB,
 			      Value *BckupRunSig) {
   Instruction *Term = BB.getTerminator();
 
-  if( !isa<ReturnInst>(Term) ) return;
+  if( !isa<ReturnInst>(Term) ) return nullptr;
 
   std::vector<Instruction*> org_instr;
   originalInstruction(BB, org_instr);
@@ -393,9 +392,9 @@ void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
     // Creating control basic block to insert before
     // the return instruction
     BasicBlock *ControlBB = BasicBlock::Create(
-      Md.getContext(), 
+      BB.getContext(), 
       "RAFCED_ret_verification_BB", 
-      &Fn,
+      BB.getParent(),
       &BB
     );
 
@@ -426,8 +425,7 @@ void RACFED::checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB,
     ControlIR.CreateCondBr(CmpSig, &BB, &ErrBB);
   }
 
-  IRBuilder<> RetInstIR(Term);
-  RetInstIR.CreateStore(BckupRunSig, RuntimeSigGV);
+  return Term;
 }
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
@@ -443,7 +441,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     ConstantInt::get(I64, 0),
     "signature"
   );
-
+  Instruction *RetInst = nullptr;
 
   createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
@@ -492,6 +490,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     Value * runtime_sign_bkup = nullptr;
     for (BasicBlock &BB : Fn) {
       // TODO: Should the error basic block that is inserted be checked?
+
       // Backup of compile time sign when entering a function
       if( BB.isEntryBlock() ) {
 	IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
@@ -501,9 +500,15 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 		     RuntimeSig);
       }
 
-      checkCompileTimeSigAtJump(Md, Fn, BB, RuntimeSig, I64, *ErrBB);
-      checkReturnValue(Md, Fn, BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
+      checkJumpSignature(BB, RuntimeSig, I64, *ErrBB);
+      RetInst = checkReturnValue(BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
       checkBranches(Md, BB, RuntimeSig, I64, *ErrBB);
+
+      // Restore signature on return
+      if( RetInst != nullptr ) {
+	IRBuilder<> RetInstIR(RetInst);
+	RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
+      }
     }
   }
 
@@ -527,49 +532,3 @@ llvmGetPassPluginInfo() {
           }};
 }
 
-// -- UNUSED FUNCTIONS --
-
-// void RACFED::splitBBsAtCalls(Module &Md) {
-//   for (Function &Fn : Md) {
-//     if (shouldCompile(Fn, FuncAnnotations)) {
-//       std::vector<CallBase *> CallInsts;
-//       for (BasicBlock &BB : Fn) {
-//         for (Instruction &I : BB) {
-//           if (isa<CallBase>(&I) && !isa<IntrinsicInst>(&I)) {
-//             CallInsts.push_back(cast<CallBase>(&I));
-//           }
-//         }
-//       }
-//
-//       for (CallBase *Call : CallInsts) {
-//         if (Call->getParent()->getTerminator() != Call) {
-//           SplitBlock(Call->getParent(), Call->getNextNode());
-//         }
-//       }
-//     }
-//   }
-// }
-//
-// CallBase *RACFED::isCallBB(BasicBlock &BB) {
-//   for (Instruction &I : BB) {
-//     if (isa<CallBase>(&I) && !isa<IntrinsicInst>(&I)) {
-//       return cast<CallBase>(&I);
-//     }
-//   }
-//   return nullptr;
-// }
-//
-// void RACFED::initializeEntryBlocksMap(Module &Md) {
-//   // Implementation for INTRA_FUNCTION_CFC == 1, left empty for now as we
-//   // default to 0
-// }
-//
-// Value *RACFED::getCondition(Instruction &I) {
-//   // Helper to get condition from terminator if it's a branch
-//   if (BranchInst *BI = dyn_cast<BranchInst>(&I)) {
-//     if (BI->isConditional()) {
-//       return BI->getCondition();
-//     }
-//   }
-//   return nullptr;
-// }

@@ -176,9 +176,9 @@ private:
 			      GlobalVariable *RuntimeSigGV, Type *IntType);
 
   // --- CHECK BLOCKS AT JUMP END ---
-  void checkCompileTimeSigAtJump(Module &Md, Function &Fn, BasicBlock &BB,
-				 GlobalVariable *RuntimeSigGV, Type *IntType,
-				 BasicBlock &ErrBB);
+  void checkJumpSignature(BasicBlock &BB,
+			  GlobalVariable *RuntimeSigGV, Type *IntType,
+			  BasicBlock &ErrBB);
 
   Value *getCondition(Instruction &I);
 
@@ -187,16 +187,10 @@ private:
 		     Type *IntType, BasicBlock &ErrBB);
 
   // --- UPDATE RETURN VALUE AND CHECK ---
-  void checkReturnValue(Module &Md, Function &Fn, BasicBlock &BB, 
+  Instruction *checkReturnValue(BasicBlock &BB, 
 			GlobalVariable *RuntimeSigGV, 
 			Type *IntType, BasicBlock &ErrBB,
 			Value *BckupRunSig);
-
-
-  // void splitBBsAtCalls(Module &Md);
-  // CallBase *isCallBB(BasicBlock &BB);
-  // void initializeEntryBlocksMap(Module &Md);
-  // Value *getCondition(Instruction &I);
 
 public:
   PreservedAnalyses run(Module &Md, ModuleAnalysisManager &);
