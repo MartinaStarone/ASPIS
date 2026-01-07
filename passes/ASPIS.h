@@ -170,9 +170,9 @@ private:
 #endif
 
   // -- INITIALIZE BLOCKS --
-  void initializeBlocksSignatures(Module &Md, Function &Fn);
+  void initializeBlocksSignatures(Function &Fn);
   // -- UPDATE COMPILE SIG RANDOM --
-  void updateCompileSigRandom(Module &Md, Function &Fn, 
+  void updateCompileSigRandom(Function &Fn,
 			      GlobalVariable *RuntimeSigGV, Type *IntType);
 
   // --- CHECK BLOCKS AT JUMP END ---
@@ -184,7 +184,7 @@ private:
 
   // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
   void checkBranches(Module &Md, BasicBlock &BB, GlobalVariable *RuntimeSigGV, 
-		     Type *IntType, BasicBlock &ErrBB);
+		     Type *IntType);
 
   // --- UPDATE RETURN VALUE AND CHECK ---
   Instruction *checkReturnValue(BasicBlock &BB, 

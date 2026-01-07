@@ -12,7 +12,6 @@
           // the code
 
 #define MARTI_DEBUG true
-#define GAMBA_DEBUG false
 
 using namespace llvm;
 
@@ -81,7 +80,7 @@ bool isNotUnique(
   return false;
 }
 
-void RACFED::initializeBlocksSignatures(Module &Md, Function &Fn) {
+void RACFED::initializeBlocksSignatures(Function &Fn) {
   std::mt19937 rng(0xB00BA5); // constant seed for reproducibility
   uint32_t randomBB;
   uint32_t randomSub;
@@ -94,7 +93,7 @@ void RACFED::initializeBlocksSignatures(Module &Md, Function &Fn) {
     do {
       randomSub = dist32(rng);
     } while ( isNotUnique(
-      static_cast<uint32_t>(randomBB) + randomSub,
+      randomBB + randomSub,
       compileTimeSig,
       subRanPrevVals) );
 
@@ -114,7 +113,7 @@ void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstruct
   }
 }
 
-void RACFED::updateCompileSigRandom(Module &Md, Function &Fn, 
+void RACFED::updateCompileSigRandom(Function &Fn,
 				    GlobalVariable *RuntimeSigGV, 
 				    Type *IntType) {
   std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
@@ -142,11 +141,7 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn,
       // signature = signature + randomConstant
       uint64_t K = dist32(rng);
       partial_sum += K;
-      #if GAMBA_DEBUG
-      errs() << "Value of K: " << K << "\n";
-      errs() << "Value of partial_sum: " << partial_sum << "\n"; 
-      errs() << "Value of sumIntra: " << sumIntraInstruction[&BB] << "\n";
-      #endif
+
       Value *Sig = B.CreateLoad(IntType, RuntimeSigGV);
       Value *NewSig = B.CreateAdd(Sig, ConstantInt::get(IntType, K), "sig_add");
       B.CreateStore(NewSig, RuntimeSigGV);
@@ -156,8 +151,6 @@ void RACFED::updateCompileSigRandom(Module &Md, Function &Fn,
 }
 
 // --- CHECK BLOCKS AT JUMP END ---
-// FIXME: Check this function to comply with the decisions made in design
-//
 // FIXME: Fix warnings
 void RACFED::checkJumpSignature(BasicBlock &BB,
 				GlobalVariable *RuntimeSigGV, Type *IntType,
@@ -240,14 +233,7 @@ Constant* expectedSignature(
   const int expectedSub = subRanPrevVals.at(Succ);
   return ConstantInt::get(IntType, expected+expectedSub);
 }
-/*
-* checkJump
-23:   for all Successor of BB do
-24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
-25:     (compileTimeSigsuccs + subRanPrevValsuccs)
-26:   Insert signature update at BB end
-27:     signature ← signature + adjustValue
-*/
+
 Value *RACFED::getCondition(Instruction &I) {
   if (isa<BranchInst>(I) && cast<BranchInst>(I).isConditional()) {
     if (!cast<BranchInst>(I).isConditional()) {
@@ -287,8 +273,16 @@ static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg)
   B.CreateCall(Printf, {FmtStr, SigVal});
 }
 
+/*
+* checkBranches
+23:   for all Successor of BB do
+24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
+25:     (compileTimeSigsuccs + subRanPrevValsuccs)
+26:   Insert signature update at BB end
+27:     signature ← signature + adjustValue
+*/
 void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
-			   Type *IntType, BasicBlock &ErrBB) {
+			   Type *IntType) {
   Instruction *Term = BB.getTerminator();
   IRBuilder<> B(&BB);
   B.SetInsertPoint(Term);
@@ -299,7 +293,7 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
 
   // Calculate Source Static Signature: CT_BB + SumIntra
   uint64_t SourceStatic =
-      (uint64_t)compileTimeSig[&BB] + sumIntraInstruction[&BB];
+      static_cast<uint64_t>(compileTimeSig[&BB]) + sumIntraInstruction[&BB];
 
   Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
   printSig(Md, B, Current, "current");
@@ -309,50 +303,41 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
   //define if conditional or unconditional branch
   //Conditional: expected= CT_succ+subRan_succ
   //adj = CTB-exp--> new signature = RT -adj
-  if ( BI->isUnconditional() ){  // only one successor
+  if ( BI->isUnconditional() ) {  // only one successor
       BasicBlock *Succ = BI->getSuccessor(0);
       uint64_t Expected =
-            (uint64_t)compileTimeSig[Succ] + (uint64_t)subRanPrevVals[Succ];;
+            static_cast<uint64_t>(compileTimeSig[Succ] + subRanPrevVals[Succ]);
       // adj = expected - current
       uint64_t AdjValue = Expected - SourceStatic;
       Value *Adj = ConstantInt::get(IntType, AdjValue);
       Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
       B.CreateStore(NewSig, RuntimeSigGV);
       printSig(Md,B, NewSig, "newsig");
-      // FIXME: Should compare neither branch
-      // verify newSig == expected
-      Value *ExpectedVal = ConstantInt::get(IntType, Expected);
-      Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
 
       return;
-    }
+  }
+
   if ( BI-> isConditional()) {
-      BasicBlock *SuccT = BI->getSuccessor(0);
-      BasicBlock *SuccF = BI->getSuccessor(1);
-      Instruction *Terminator = BB.getTerminator();
-      Value *BrCondition = getCondition(*Terminator);
+    BasicBlock *SuccT = BI->getSuccessor(0);
+    BasicBlock *SuccF = BI->getSuccessor(1);
+    Instruction *Terminator = BB.getTerminator();
+    Value *BrCondition = getCondition(*Terminator);
 
-      // Target T
-      uint64_t expectedT =
-          (uint64_t)compileTimeSig[SuccT] + (uint64_t)subRanPrevVals[SuccT];
-      uint64_t adj1 = expectedT - SourceStatic;
+    // Target T
+    uint64_t expectedT =
+        static_cast<uint64_t>(compileTimeSig[SuccT] + subRanPrevVals[SuccT]);
+    uint64_t adj1 = expectedT - SourceStatic;
 
-      // Target F
-      uint64_t expectedF =
-          (uint64_t)compileTimeSig[SuccF] + (uint64_t)subRanPrevVals[SuccF];
-      uint64_t adj2 = expectedF - SourceStatic;
+    // Target F
+    uint64_t expectedF =
+        static_cast<uint64_t>(compileTimeSig[SuccF] + subRanPrevVals[SuccF]);
+    uint64_t adj2 = expectedF - SourceStatic;
 
-      Value *Adj = B.CreateSelect(BrCondition, ConstantInt::get(IntType, adj1), ConstantInt::get(IntType, adj2));
-      Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
-      B.CreateStore(NewSig, RuntimeSigGV);
+    Value *Adj = B.CreateSelect(BrCondition, ConstantInt::get(IntType, adj1), ConstantInt::get(IntType, adj2));
+    Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
+    B.CreateStore(NewSig, RuntimeSigGV);
 
-      printSig(Md, B, NewSig, "SIG after cond");
-       Value *ExpectedVal = B.CreateSelect(
-          BrCondition, ConstantInt::get(IntType, expectedT),
-          ConstantInt::get(IntType, expectedF), "expected_sig");
-      Value *Ok = B.CreateICmpEQ(NewSig, ExpectedVal, "racfed_ok");
-
-    return;
+    printSig(Md, B, NewSig, "SIG after cond");
   }
 }
 
@@ -449,18 +434,18 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 
   for (Function &Fn : Md) {
     if (shouldCompile(Fn, FuncAnnotations))
-      initializeBlocksSignatures(Md, Fn);
+      initializeBlocksSignatures(Fn);
   }
 
   for (Function &Fn: Md) {
     if (Fn.isDeclaration() || Fn.empty()) continue;
-    updateCompileSigRandom(Md, Fn, RuntimeSig, I64);
+    updateCompileSigRandom(Fn, RuntimeSig, I64);
   }
 
   for(Function &Fn: Md) {
     if(!shouldCompile(Fn, FuncAnnotations)) continue;
 
-    #if GAMBA_DEBUG || MARTI_DEBUG
+    #if MARTI_DEBUG
     errs() << "Analysing func " << Fn.getName() << "\n";
     #endif
 
@@ -468,8 +453,8 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     DebugLoc debugLoc;
     for (auto &I : Fn.front()) {
       if (I.getDebugLoc()) {
-	debugLoc = I.getDebugLoc();
-	break;
+	      debugLoc = I.getDebugLoc();
+	      break;
       } 
     }
  
@@ -493,21 +478,21 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 
       // Backup of compile time sign when entering a function
       if( BB.isEntryBlock() ) {
-	IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	runtime_sign_bkup =
-	  InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
-	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
-		     RuntimeSig);
+        IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
+	      runtime_sign_bkup =
+	        InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	        InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
+	          RuntimeSig);
       }
 
       checkJumpSignature(BB, RuntimeSig, I64, *ErrBB);
       RetInst = checkReturnValue(BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
-      checkBranches(Md, BB, RuntimeSig, I64, *ErrBB);
+      checkBranches(Md, BB, RuntimeSig, I64);
 
       // Restore signature on return
       if( RetInst != nullptr ) {
-	IRBuilder<> RetInstIR(RetInst);
-	RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
+	      IRBuilder<> RetInstIR(RetInst);
+	      RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
       }
     }
   }

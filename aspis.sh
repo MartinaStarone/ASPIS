@@ -368,9 +368,9 @@ run_aspis() {
         2) 
             exe $OPT -load-pass-plugin=$DIR/build/passes/libINTER_RASM.so --passes="rasm-verify" $build_dir/out.ll -o $build_dir/out.ll $cfc_options
             ;;
-#        3)
-#            exe $OPT -load-pass-plugin=$DIR/build/passes/libRACFED.so --passes="racfed-verify" $build_dir/out.ll -o $build_dir/out.ll $cfc_options
-#            ;;
+        3)
+            exe $OPT -load-pass-plugin=$DIR/build/passes/libRACFED.so --passes="racfed-verify" $build_dir/out.ll -o $build_dir/out.ll $cfc_options
+            ;;
         *)
             echo -e "\t--no-cfc specified!"
     esac
