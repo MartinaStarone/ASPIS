@@ -20,6 +20,7 @@ clang_options=
 eddi_options="-S"
 cfc_options="-S"
 llvm_bin=$(dirname "$(which clang)")
+suffix=""
 build_dir="."
 dup=0 # 0 = eddi,   1 = seddi,  2 = fdsc
 cfc=0 # 0 = cfcss,  1 = rasm,   2 = inter-rasm
@@ -112,12 +113,14 @@ parse_commands() {
         -o <file>           Write the compilation output to <file>.
         --build-dir <path>  Specify the directory where to place all the build
                             files.
-        --llvm-bin <path>   Set the path to the llvm binaries (clang, opt, 
+        --llvm-bin  <path>  Set the path to the llvm binaries (clang, opt, 
                             llvm-link) to <path>.
-        --exclude <file>    Set the files to exclude from the compilation. The 
+	--suffix    <value> Set the suffix of the binary to use (clang, opt, 
+			    llvm-link) to <value>.
+        --exclude   <file>  Set the files to exclude from the compilation. The 
                             content of <file> is the list of files to 
                             exclude, one for each line (wildcard * allowed).
-        --asmfiles <file>   Defines the set of assembly files required for the
+        --asmfiles  <file>  Defines the set of assembly files required for the
                             compilation. The content of <file> is the list of 
                             assembly files to pass to the linker at compilation 
                             termination, one for each line (wildcard * allowed).
@@ -128,12 +131,13 @@ parse_commands() {
         --eddi              (Default) Enable EDDI.
         --seddi             Enable Selective-EDDI.
         --fdsc              Enable Full Duplication with Selective Checking.
-        --no-dup            Completely disable data duplication
+        --no-dup            Completely disable data duplication.
         
         --cfcss             (Default) Enable CFCSS.
         --rasm              Enable RASM.
         --inter-rasm        Enable inter-RASM with the default signature -0xDEAD.
-        --no-cfc            Completely disable control-flow checking
+	--racfed            Enable RACFED.
+        --no-cfc            Completely disable control-flow checking.
 
     Hardening options:
         --alternate-memmap  When set, alternates the definition of original and 
@@ -155,16 +159,25 @@ EOF
                         if [[ ${#opt} -eq 2 ]]; then
                             parse_state=1;
                         else
-                            output_file=`echo "$opt" | cut -b 2`;
+                            output_file=${opt##"-o"};
                         fi;
                         ;;
                     --llvm-bin*)
+			echo ${#opt}
                         if [[ ${#opt} -eq 10 ]]; then
                             parse_state=3;
                         else
-                            llvm_bin=`echo "$opt" | cut -b 10`;
+                            llvm_bin=${opt##"--llvm-bin="};
                         fi;
                         ;;
+		    --suffix*)
+			if [[ ${#opt} -eq 8 ]]; then
+                            parse_state=7;
+			else
+			    suffix='-';
+			    suffix+=${opt##"--suffix="};
+			fi;
+			;;
                     --exclude*)
                         if [[ ${#opt} -eq 9 ]]; then
                             parse_state=4;
@@ -270,6 +283,10 @@ EOF
                 build_dir="$opt";
                 parse_state=0;
                 ;;
+	    7)
+		suffix="$opt";
+		parse_state=0;
+		;;
         esac
     done
 
@@ -294,9 +311,9 @@ EOF
         }
     fi
 
-    CLANG="${llvm_bin}/clang" 
-    OPT="${llvm_bin}/opt"
-    LLVM_LINK="${llvm_bin}/llvm-link"
+    CLANG="${llvm_bin}/clang${suffix}" 
+    OPT="${llvm_bin}/opt${suffix}"
+    LLVM_LINK="${llvm_bin}/llvm-link${suffix}"
 
     if [[ -n "$config_file" ]]; then
         CLANG="${CLANG} --config ${config_file}"
