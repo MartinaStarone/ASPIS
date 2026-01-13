@@ -1,4 +1,5 @@
 import pytest
+import os
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -7,7 +8,35 @@ def pytest_addoption(parser):
         default=False,
         help="Run tests inside a container",
     )
+    parser.addoption(
+        "--tests-file",
+        action="store",
+        default="config/tests.toml",
+        help="Path to the configuration file",
+    )
+    parser.addoption(
+        "--suffix",
+        action="store",
+        help="LLVM version suffix",
+    )
 
 @pytest.fixture(scope="session")
 def use_container(pytestconfig):
     return pytestconfig.getoption("use_container")
+
+# Optional: Add a check to ensure the file exists before any tests start
+def pytest_configure(config):
+    tests_file = config.getoption("--tests-file")
+    if not os.path.exists(tests_file):
+        pytest.exit(f"Config file not found: {tests_file}")
+
+@pytest.fixture(scope="session")
+def aspis_addopt(pytestconfig):
+    addopt = {}
+    suffix_opt = pytestconfig.getoption("--suffix")
+    if suffix_opt is None:
+        addopt["suffix"] = ""
+    else:
+        addopt["suffix"] = "--suffix " + suffix_opt
+
+    return addopt["suffix"]

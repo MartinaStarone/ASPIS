@@ -1,0 +1,11 @@
+[[tests]]
+test_name = "multiline_add"
+source_file = "c/multi_instruction/add.c"
+expected_output = "30"
+aspis_options = "--no-dup --racfed"
+
+[[tests]]
+test_name = "multiline_func_ret"
+source_file = "c/multi_instruction/func_ret.c"
+expected_output = "foo() 25"
+aspis_options = "--no-dup --racfed"

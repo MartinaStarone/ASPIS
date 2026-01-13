@@ -4,11 +4,34 @@ This directory contains utilities and scripts for testing ASPIS.
 
 ## Local Testing
 
-For local testing, use the `test.py` script. Configure your tests using `test_config.json`.
-
+For local testing, use the `test.py` script. Configure your tests using `test_config.toml`. Configure the llvm_bin flag in `llvm_bin.toml`.
+Then run:
 ```bash
 pytest test.py
 ```
+
+### Writing a configuration file
+
+Test config files must be `.toml` files with the following structure for each test:
+
+```toml
+[[tests]]
+test_name = <name_for_test>
+source_file = <relative_path_to_src_file>
+expected_output = <output_expected>
+aspis_options = <compilation_flags>
+```
+
+> `<relative_path_to_src_file>` will look into `./tests` folder
+
+### Flags
+
+It is possible to write different configuration test files.
+
+Additional flags are:
+`--suffix <version>` : Operates the same way as aspis, searching for binaries versions denoted by `<version>`.
+`--tests-file <path_to_config_file>` : Use the configuration file specified.
+
 
 ## Docker Testing
 

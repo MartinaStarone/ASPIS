@@ -284,7 +284,7 @@ EOF
                 parse_state=0;
                 ;;
 	    7)
-		suffix="$opt";
+		suffix="-$opt";
 		parse_state=0;
 		;;
         esac
