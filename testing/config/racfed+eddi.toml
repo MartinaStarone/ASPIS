@@ -1,104 +1,102 @@
-# ml := multiline
-
 [[tests]]
-test_name = "racfed_ml_add"
+test_name = "racfed_ml_add_eddi"
 source_file = "c/multi_instruction/add.c"
 expected_output = "30"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_ml_function_call"
+test_name = "racfed_ml_function_call_eddi"
 source_file = "c/multi_instruction/function.c"
 expected_output = "foo() 25"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_preserve_runtime_sig"
+test_name = "racfed_preserve_runtime_sig_eddi"
 source_file = "c/multi_instruction/call_less_two.c"
 expected_output = "0"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_ml_if_then_else"
+test_name = "racfed_ml_if_then_else_eddi"
 source_file = "c/multi_instruction/if_then_else.c"
 expected_output = "1001"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_ml_phi_instruction"
+test_name = "racfed_ml_phi_instruction_eddi"
 source_file = "c/multi_instruction/phi.c"
 expected_output = "1"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_function_pointer"
+test_name = "racfed_function_pointer_eddi"
 source_file = "c/control_flow/function_pointer.c"
 expected_output = "42"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_loop_exit"
+test_name = "racfed_loop_exit_eddi"
 source_file = "c/control_flow/loop_exit.c"
 expected_output = "2"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_nested-branch"
+test_name = "racfed_nested-branch_eddi"
 source_file = "c/control_flow/nested-branch.c"
 expected_output = "6"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_simple-branch"
+test_name = "racfed_simple-branch_eddi"
 source_file = "c/control_flow/simple-branch.c"
 expected_output = "OK"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_switch-case"
+test_name = "racfed_switch-case_eddi"
 source_file = "c/control_flow/switch-case.c"
 expected_output = "300"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_data_dep_branches"
+test_name = "racfed_data_dep_branches_eddi"
 source_file = "c/data_duplication_integrity/data_dep_branches.c"
 expected_output = "7"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_global_var_across_functions"
+test_name = "racfed_global_var_across_functions_eddi"
 source_file = "c/data_duplication_integrity/global_var_across_functions.c"
 expected_output = "2"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_misc_data_dup"
+test_name = "racfed_misc_data_dup_eddi"
 source_file = "c/data_duplication_integrity/misc_data_dup.c"
 expected_output = "OK"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_volatile_io"
+test_name = "racfed_volatile_io_eddi"
 source_file = "c/data_duplication_integrity/volatile_io.c"
 expected_output = "42"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_arit_pipeline"
+test_name = "racfed_arit_pipeline_eddi"
 source_file = "c/misc_math/arit_pipeline.c"
 expected_output = "3"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_mixed_ops"
+test_name = "racfed_mixed_ops_eddi"
 source_file = "c/misc_math/mixed_ops.c"
 expected_output = "14.5"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
 [[tests]]
-test_name = "racfed_xor_cypher"
+test_name = "racfed_xor_cypher_eddi"
 source_file = "c/misc_math/xor_cypher.c"
 expected_output = "SUCCESS"
-aspis_options = "--no-dup --racfed"
+aspis_options = "--eddi --racfed"
 
