@@ -11,7 +11,7 @@
   -0xDEAD // The same value has to be used as initializer for the signatures in
           // the code
 
-#define MARTI_DEBUG true
+#define MARTI_DEBUG false
 
 using namespace llvm;
 
@@ -106,9 +106,9 @@ void RACFED::initializeBlocksSignatures(Function &Fn) {
 // --- UPDATE SIGNATURE RANDOM  ---
 void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstructions) {
   for (Instruction &I : BB) {
-    if (isa<PHINode>(&I)) continue; // NON è originale
-    if (I.isTerminator()) continue; // NON è originale
-    if (isa<DbgInfoIntrinsic>(&I)) continue; // debug, ignora OrigInstructions.push_back(&I);
+    if ( isa<PHINode>(&I) ) continue; // NON è originale
+    if ( I.isTerminator() ) continue; // NON è originale
+    if ( isa<DbgInfoIntrinsic>(&I) ) continue; // debug, ignora OrigInstructions.push_back(&I);
     OrigInstructions.push_back(&I);
   }
 }
@@ -122,7 +122,7 @@ void RACFED::updateCompileSigRandom(Function &Fn,
     std::vector<Instruction*> OrigInstructions;
     originalInstruction(BB, OrigInstructions);
 
-    if (OrigInstructions.size() <= 2) continue;
+    if ( OrigInstructions.size() <= 2 ) continue;
 
     uint64_t partial_sum = 0;
 
@@ -130,7 +130,7 @@ void RACFED::updateCompileSigRandom(Function &Fn,
       Instruction *InsertPt = nullptr;
 
       // Non puoi inserire "dopo" un terminator: inserisci prima del terminator stesso
-      if (I->isTerminator()) {
+      if ( I->isTerminator() ) {
         InsertPt = I; // insert BEFORE terminator
       } else {
         InsertPt = I->getNextNode(); // insert BEFORE next instruction (equivale a "dopo I")
@@ -155,7 +155,7 @@ void RACFED::updateCompileSigRandom(Function &Fn,
 void RACFED::checkJumpSignature(BasicBlock &BB,
 				GlobalVariable *RuntimeSigGV, Type *IntType,
 				BasicBlock &ErrBB) {
-  if( BB.isEntryBlock() ) return;
+  if ( BB.isEntryBlock() ) return;
 
   // in this case BB is not the first Basic Block of the function, so it has
   // to update RuntimeSig and check it
@@ -163,12 +163,12 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
   if ( (FirstNonPHI && isa<LandingPadInst>(FirstNonPHI)) ||
      BB.getName().contains_insensitive("verification") ) {
 
-    if (BB.getFirstInsertionPt() == BB.end()) return; // Skip empty/invalid blocks
+    if ( BB.getFirstInsertionPt() == BB.end() ) return; // Skip empty/invalid blocks
 
     int randomNumberBB = compileTimeSig.find(&BB)->second;
     IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
     BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB), RuntimeSigGV, true);
-  } else if (!BB.getName().contains_insensitive("errbb")) {
+  } else if ( !BB.getName().contains_insensitive("errbb") ) {
     int randomNumberBB = compileTimeSig.find(&BB)->second;
     int subRanPrevVal = subRanPrevVals.find(&BB)->second;
     BasicBlock *NewBB = BasicBlock::Create(
@@ -200,7 +200,7 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
     for (BasicBlock *Succ : successors(&BB)) {
       for (PHINode &Phi : Succ->phis()) {
         for (unsigned i = 0; i < Phi.getNumIncomingValues(); ++i) {
-          if (Phi.getIncomingBlock(i) == NewBB) {
+          if ( Phi.getIncomingBlock(i) == NewBB ) {
             Phi.setIncomingBlock(i, &BB);
           }
         }
@@ -235,13 +235,13 @@ Constant* expectedSignature(
 }
 
 Value *RACFED::getCondition(Instruction &I) {
-  if (isa<BranchInst>(I) && cast<BranchInst>(I).isConditional()) {
-    if (!cast<BranchInst>(I).isConditional()) {
+  if ( isa<BranchInst>(I) && cast<BranchInst>(I).isConditional() ) {
+    if ( !cast<BranchInst>(I).isConditional() ) {
       return nullptr;
     } else {
       return cast<BranchInst>(I).getCondition();
     }
-  } else if (isa<SwitchInst>(I)) {
+  } else if ( isa<SwitchInst>(I) ) {
     errs() << "There is a switch!\n";
     abort();
     return cast<SwitchInst>(I).getCondition();
@@ -263,10 +263,10 @@ static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg)
 
   // Crea stringa globale "Msg: %ld\n"
   std::string Fmt = std::string(Msg) + ": %ld\n";
-  Value *FmtStr = B.CreateGlobalStringPtr(Fmt);
+  Value *FmtStr = B.CreateGlobalString(Fmt);
 
 
-  if (SigVal->getType()->isIntegerTy(32)) {
+  if ( SigVal->getType()->isIntegerTy(32) ) {
     SigVal = B.CreateZExt(SigVal, Type::getInt64Ty(Ctx));
   }
 
@@ -287,7 +287,7 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
   IRBuilder<> B(&BB);
   B.SetInsertPoint(Term);
   auto *BI = dyn_cast<BranchInst>(Term);
-  if (!BI) return;
+  if ( !BI ) return;
 
   //TODO: check this
 
@@ -296,7 +296,9 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
       static_cast<uint64_t>(compileTimeSig[&BB]) + sumIntraInstruction[&BB];
 
   Value *Current = B.CreateLoad(IntType, RuntimeSigGV, "current");
+  #if MARTI_DEBUG
   printSig(Md, B, Current, "current");
+  #endif
 
   //TODO: until here
 
@@ -304,17 +306,19 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
   //Conditional: expected= CT_succ+subRan_succ
   //adj = CTB-exp--> new signature = RT -adj
   if ( BI->isUnconditional() ) {  // only one successor
-      BasicBlock *Succ = BI->getSuccessor(0);
-      uint64_t Expected =
-            static_cast<uint64_t>(compileTimeSig[Succ] + subRanPrevVals[Succ]);
-      // adj = expected - current
-      uint64_t AdjValue = Expected - SourceStatic;
-      Value *Adj = ConstantInt::get(IntType, AdjValue);
-      Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
-      B.CreateStore(NewSig, RuntimeSigGV);
-      printSig(Md,B, NewSig, "newsig");
+    BasicBlock *Succ = BI->getSuccessor(0);
+    uint64_t SuccExpected =
+      static_cast<uint64_t>(compileTimeSig[Succ] + subRanPrevVals[Succ]);
+    // adj = expected - current
+    uint64_t AdjValue = SuccExpected - SourceStatic;
+    Value *Adj = ConstantInt::get(IntType, AdjValue);
+    Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
+    B.CreateStore(NewSig, RuntimeSigGV);
+    #if MARTI_DEBUG
+    printSig(Md,B, NewSig, "newsig");
+    #endif
 
-      return;
+    return;
   }
 
   if ( BI-> isConditional()) {
@@ -337,7 +341,9 @@ void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeS
     Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
     B.CreateStore(NewSig, RuntimeSigGV);
 
+    #if MARTI_DEBUG
     printSig(Md, B, NewSig, "SIG after cond");
+    #endif
   }
 }
 
@@ -360,11 +366,11 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 			      Value *BckupRunSig) {
   Instruction *Term = BB.getTerminator();
 
-  if( !isa<ReturnInst>(Term) ) return nullptr;
+  if ( !isa<ReturnInst>(Term) ) return nullptr;
 
   std::vector<Instruction*> org_instr;
   originalInstruction(BB, org_instr);
-  if( org_instr.size() > 2 ) {
+  if ( org_instr.size() > 2 ) {
 
     // Splits the BB that contains the return instruction into
     // two basic blocks:
@@ -443,7 +449,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   }
 
   for(Function &Fn: Md) {
-    if(!shouldCompile(Fn, FuncAnnotations)) continue;
+    if (!shouldCompile(Fn, FuncAnnotations)) continue;
 
     #if MARTI_DEBUG
     errs() << "Analysing func " << Fn.getName() << "\n";
@@ -474,15 +480,15 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 
     Value * runtime_sign_bkup = nullptr;
     for (BasicBlock &BB : Fn) {
-      // TODO: Should the error basic block that is inserted be checked?
-
       // Backup of compile time sign when entering a function
-      if( BB.isEntryBlock() ) {
+      if ( BB.isEntryBlock() ) {
         IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	      runtime_sign_bkup =
-	        InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
-	        InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
-	          RuntimeSig);
+	if ( Fn.getName() != "main" ) {
+	  runtime_sign_bkup =
+	    InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	}
+	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
+	  RuntimeSig);
       }
 
       checkJumpSignature(BB, RuntimeSig, I64, *ErrBB);
@@ -490,7 +496,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       checkBranches(Md, BB, RuntimeSig, I64);
 
       // Restore signature on return
-      if( RetInst != nullptr ) {
+      if ( RetInst != nullptr && Fn.getName() != "main") {
 	      IRBuilder<> RetInstIR(RetInst);
 	      RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
       }

@@ -1,5 +1,5 @@
 //
-// Created by Martina Starone on 24/12/25.
+// Created by Gabriele Santandrea on 24/12/25.
 //
 #include <stdio.h>
 

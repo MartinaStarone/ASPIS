@@ -1,14 +1,25 @@
-int max(int a, int b, int c) {
-    int max = a > b ? a : b;
-    max = max > c ? max : c;
-    return max;
-}
+//
+// Created by Gabriele Santandrea
+//
+#include <stdio.h>
 
+int foo();
+void print(int c);
 
 int main() {
     int a = 10;
     int b = 20;
-    int c = 30;
-    max(a, b, c);
-    return 0;
+    int c = foo();
+    print(c);
+    return a > b ? 1 : 0;
+}
+
+int foo() {
+    int c = 12;
+    int d = 13;
+    return c + d;
+}
+
+void print(int c) {
+    printf("foo() %d\n", c);
 }
