@@ -332,14 +332,14 @@ run_aspis() {
 
     ## FuncRetToRef
     if [[ dup -ne -1 ]]; then
-        exe $OPT --enable-new-pm=1 -load-pass-plugin=$DIR/build/passes/libEDDI.so --passes="func-ret-to-ref" $build_dir/out.ll -o $build_dir/out.ll
+        exe $OPT -load-pass-plugin=$DIR/build/passes/libEDDI.so --passes="func-ret-to-ref" $build_dir/out.ll -o $build_dir/out.ll
     fi;
 
     title_msg "ASPIS transformations"
     ## DATA PROTECTION
     case $dup in
         0) 
-            exe $OPT --enable-new-pm=1 -load-pass-plugin=$DIR/build/passes/libEDDI.so --passes="eddi-verify" $build_dir/out.ll -o $build_dir/out.ll $eddi_options
+            exe $OPT -load-pass-plugin=$DIR/build/passes/libEDDI.so --passes="eddi-verify" $build_dir/out.ll -o $build_dir/out.ll $eddi_options
             ;;
         1) 
             exe $OPT --enable-new-pm=1 -load-pass-plugin=$DIR/build/passes/libSEDDI.so --passes="eddi-verify" $build_dir/out.ll -o $build_dir/out.ll $eddi_options
