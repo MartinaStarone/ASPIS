@@ -1,3 +1,47 @@
+/****************************************************************************************
+ * @brief LLVM pass implementing Random Additive Control Flow Error Detection (RACFED).
+ * 	  Original algorithm by Vankeirsbilck et Al. (DOI: 10.1007/978-3-319-99130-6_15)
+ *
+ * @author Martina Starone, Gabriele Santandrea, Politecnico di Milano, Italy
+ * 	   (martina.starone@mail.polimi.it, gabriele.santandrea@mail.polimi.it)
+ *
+ * The RACFED algorithm is reported here.
+ * It was splitted into sections in order to develop a more readeable code.
+ *
+ * initializeBlockSignatures
+ *  1:for all Basic Block (BB) in CFG do
+ *  2: repeat compileTimeSig ← random number
+ *  3: until compileTimeSig is unique
+ *  4: repeat subRanPrevVal ← random number
+ *  5: until (compileTimeSig + subRanPrevVal) is unique
+ * insertIntraInstructionUpdates
+ *  6:for all BB in CFG do
+ *  7:   if NrInstrBB > 2 then
+ *  8:    for all original instructions insert after
+ *  9:      signature ← signature + random number
+ * checkJumpSignature
+ *  10:for all BB in CFG insert at beginning
+ *  11:  signature ← signature − subRanPrevVal
+ *  12:  if signature != compileTimeSig error()
+ *  13:for all BB in CFG do
+ * checkRetVal
+ *  14: if Last Instr. is return instr. and NrIntrBB > 1 then
+ *  15:   Calculate needed variables
+ *  16:     return Val ← random number
+ *  17:     adjust Value ← (compileTimeSigBB + SumIntraInstructions) -
+ *  18:                 return Val
+ *  19:   Insert signature update before return instr.
+ *  20:     signature ← signature + adjustValue
+ *  21:     if signature != returnVal error()
+ *  22: else
+ * updateBeforeJump
+ *  23:   for all Successor of BB do
+ *  24:    adjustValue ← (compileTimeSigBB + SumIntraInstructions) -
+ *  25:     (compileTimeSigSuccs + subRanPrevValSuccs)
+ *  26:   Insert signature update at BB end
+ *  27:     signature ← signature + adjustValue
+ *************************************************************************************/
+
 #include "ASPIS.h"
 #include "Utils/Utils.h"
 #include "llvm/IR/IRBuilder.h"
@@ -7,54 +51,28 @@
 
 #include <random>
 
-#define INIT_SIGNATURE                                                         \
-  -0xDEAD // The same value has to be used as initializer for the signatures in
-          // the code
-
 #define MARTI_DEBUG false
 
 using namespace llvm;
 
-/**
- * initializeBlockSignatures
-1:for all Basic Block (BB) in CFG do
-2: repeat compileTimeSig ← random number
-3: until compileTimeSig is unique
-4: repeat subRanPrevVal ← random number
-5: until (compileTimeSig + subRanP revV al) is unique
- * updateSignatureRandom
-6:for all BB in CFG do
-7:   if NrInstrBB > 2 then
-8:    for all original instructions insert after
-9:      signature ← signature + random number
-  * checkCompileTimeSigAtJump
-10:for all BB in CFG insert at beginning
-11:  signature ← signature − subRanPrevVal
-12:  if signature != compileTimeSig error()
-13:for all BB in CFG do
-  * checkRetVal
-14: if Last Instr. is return instr. and NrIntrBB > 1 then
-15:   Calculate needed variables
-16:     return Val ← random number
-17:     adjust Value ← (compileTimeSigBB + SumIntraInstructions) -
-18:                 return Val
-19:   Insert signature update before return instr.
-20:     signature ← signature + adjustValue
-21:     if signature != returnVal error()
-22: else
-  * checkJump
-23:   for all Successor of BB do
-24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
-25:     (compileTimeSigsuccs + subRanPrevValsuccs)
-26:   Insert signature update at BB end
-27:     signature ← signature + adjustValue
-*/
-
+/// Uniform distribution for 32 bits numbers.
+///
+/// In each function using this distribution a different seed will be used.
+/// Seeds are chosen to be constant for reproducibility.
+///
+/// The range doesn't encapsulate the complete representation of 32 bits unsigned,
+/// this was a design choice since multiple 32 bits are sum between each
+/// other throughout the algorithm thus no overflow should occur when summing.
 std::uniform_int_distribution<uint32_t> dist32(1, 0x7fffffff);
-std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
-std::mt19937 rng64(0x5EED00); // constant seed for reproducibility
 
-// --- INITIALIZE BLOCKS RANDOM ---
+// -------- INITIALIZE BLOCKS SIGNATURES --------
+
+/**
+ * Checks whether the compile time signature is unique.
+ *
+ * @param bb_num 	 compile time signature of the current analysed basic block.
+ * @param compileTimeSig already assigned compile time signatures
+ */
 bool isNotUniqueCompileTimeSig(
   const uint32_t bb_num,
   const std::unordered_map<BasicBlock*, uint32_t> &compileTimeSig
@@ -65,13 +83,22 @@ bool isNotUniqueCompileTimeSig(
   return false;
 }
 
+/**
+ * Checks whether the compile time signature (already unique) 
+ * + second unique identifier (subRanPrevVal).
+ * 
+ * @param current_id     compileTimeSignature + subRanPrevVal for the 
+ * current basic block.
+ * @param compileTimeSig already assigned compile time signatures.
+ * @param subRanPrevVals already assigned subRanPrevVals.
+ */
 bool isNotUnique(
   const uint32_t current_id,
-  const std::unordered_map<BasicBlock*, uint32_t> &RandomNumBBs,
-  const std::unordered_map<BasicBlock*, uint32_t> &SubRanPrevVals
+  const std::unordered_map<BasicBlock*, uint32_t> &compileTimeSig,
+  const std::unordered_map<BasicBlock*, uint32_t> &subRanPrevVals
 ) {
-  for (const auto &[other_bb, other_bb_num] : RandomNumBBs) {
-    uint32_t other_id = static_cast<uint32_t>(other_bb_num) + SubRanPrevVals.at(other_bb);
+  for (const auto &[other_bb, other_bb_num] : compileTimeSig) {
+    uint32_t other_id = static_cast<uint32_t>(other_bb_num) + subRanPrevVals.at(other_bb);
     if ( other_id == current_id ) {
       return true;
     }
@@ -103,17 +130,22 @@ void RACFED::initializeBlocksSignatures(Function &Fn) {
 }
 
 
-// --- UPDATE SIGNATURE RANDOM  ---
+// --------- INSERT UPDATES AFTER INSTRUCTIONS  -----------
+
+/**
+ * Computes the number of original instructions of the intermediate representation.
+ */
 void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstructions) {
   for (Instruction &I : BB) {
     if ( isa<PHINode>(&I) ) continue; // NON è originale
     if ( I.isTerminator() ) continue; // NON è originale
-    if ( isa<DbgInfoIntrinsic>(&I) ) continue; // debug, ignora OrigInstructions.push_back(&I);
+    // debug, ignora OrigInstructions.push_back(&I);
+    if ( isa<DbgInfoIntrinsic>(&I) ) continue;
     OrigInstructions.push_back(&I);
   }
 }
 
-void RACFED::updateCompileSigRandom(Function &Fn,
+void RACFED::insertIntraInstructionUpdates(Function &Fn,
 				    GlobalVariable *RuntimeSigGV, 
 				    Type *IntType) {
   std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
@@ -150,7 +182,7 @@ void RACFED::updateCompileSigRandom(Function &Fn,
   }
 }
 
-// --- CHECK BLOCKS AT JUMP END ---
+// --------- CHECK BLOCKS AT JUMP END ---------
 // FIXME: Fix warnings
 void RACFED::checkJumpSignature(BasicBlock &BB,
 				GlobalVariable *RuntimeSigGV, Type *IntType,
@@ -213,9 +245,6 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
 		       llvm::ConstantInt::get(IntType, randomNumberBB));
     BChecker.CreateCondBr(CmpVal, &BB, &ErrBB);
 
-    // add NewBB and BB into the NewBBs map
-    NewBBs.insert(std::pair<BasicBlock *, BasicBlock *>(NewBB, &BB));
-
     // Map NewBB to the same signature requirements as BB so predecessors can
     // target it correctly
     compileTimeSig[NewBB] = randomNumberBB;
@@ -274,14 +303,14 @@ static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg)
 }
 
 /*
-* checkBranches
-23:   for all Successor of BB do
-24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
-25:     (compileTimeSigsuccs + subRanPrevValsuccs)
-26:   Insert signature update at BB end
-27:     signature ← signature + adjustValue
+* updateBeforeJump
+* 23:   for all Successor of BB do
+* 24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
+* 25:     (compileTimeSigsuccs + subRanPrevValsuccs)
+* 26:   Insert signature update at BB end
+* 27:     signature ← signature + adjustValue
 */
-void RACFED::checkBranches(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
+void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
 			   Type *IntType) {
   Instruction *Term = BB.getTerminator();
   IRBuilder<> B(&BB);
@@ -364,6 +393,12 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 			      GlobalVariable *RuntimeSigGV, 
 			      Type* IntType, BasicBlock &ErrBB,
 			      Value *BckupRunSig) {
+
+  // Uniform distribution for 64 bits numbers.
+  std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
+  // Constant seed for 64 bits
+  std::mt19937 rng64(0x5EED00);
+
   Instruction *Term = BB.getTerminator();
 
   if ( !isa<ReturnInst>(Term) ) return nullptr;
@@ -420,9 +455,6 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 }
 
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
-  // mappa: istruzione originale -> random r usato per S = S + r
-  // std::unordered_map<llvm::Instruction*, int> InstrUpdates;
-
   auto *I64 = llvm::Type::getInt64Ty(Md.getContext());
 
   GlobalVariable *RuntimeSig = new GlobalVariable(
@@ -432,6 +464,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     ConstantInt::get(I64, 0),
     "signature"
   );
+
   Instruction *RetInst = nullptr;
 
   createFtFuncs(Md);
@@ -445,7 +478,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 
   for (Function &Fn: Md) {
     if (Fn.isDeclaration() || Fn.empty()) continue;
-    updateCompileSigRandom(Fn, RuntimeSig, I64);
+    insertIntraInstructionUpdates(Fn, RuntimeSig, I64);
   }
 
   for(Function &Fn: Md) {
@@ -464,6 +497,10 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       } 
     }
  
+    #if (LOG_COMPILED_FUNCS == 1)
+    CompiledFuncs.insert(&Fn);
+    #endif
+
     // Create error basic block
     assert(!getLinkageName(linkageMap,"SigMismatch_Handler").empty() 
 	   && "Function SigMismatch_Handler is missing!");
@@ -493,7 +530,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
 
       checkJumpSignature(BB, RuntimeSig, I64, *ErrBB);
       RetInst = checkReturnValue(BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
-      checkBranches(Md, BB, RuntimeSig, I64);
+      updateBeforeJump(Md, BB, RuntimeSig, I64);
 
       // Restore signature on return
       if ( RetInst != nullptr && Fn.getName() != "main") {
@@ -502,6 +539,10 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       }
     }
   }
+
+  #if (LOG_COMPILED_FUNCS == 1)
+  persistCompiledFunctions(CompiledFuncs, "compiled_racfed_functions.csv");
+  #endif
 
   // There is nothing that this pass preserved
   return PreservedAnalyses::none();
