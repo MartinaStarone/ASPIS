@@ -8,7 +8,7 @@
  * The RACFED algorithm is reported here.
  * It was splitted into sections in order to develop a more readeable code.
  *
- * initializeBlockSignatures
+ * initializeBlocksSignatures
  *  1:for all Basic Block (BB) in CFG do
  *  2: repeat compileTimeSig ← random number
  *  3: until compileTimeSig is unique
@@ -24,7 +24,7 @@
  *  11:  signature ← signature − subRanPrevVal
  *  12:  if signature != compileTimeSig error()
  *  13:for all BB in CFG do
- * checkRetVal
+ * checkOnReturn
  *  14: if Last Instr. is return instr. and NrIntrBB > 1 then
  *  15:   Calculate needed variables
  *  16:     return Val ← random number
@@ -54,6 +54,12 @@
 #define MARTI_DEBUG false
 
 using namespace llvm;
+
+// TODO: Seeds could be randomised
+
+// TODO: Check TODOs in updateBeforeJump
+
+// TODO: Fix warnings in checkJump
 
 /// Uniform distribution for 32 bits numbers.
 ///
@@ -107,6 +113,14 @@ bool isNotUnique(
   return false;
 }
 
+/*
+ * initializeBlocksSignatures
+ *  1:for all Basic Block (BB) in CFG do
+ *  2: repeat compileTimeSig ← random number
+ *  3: until compileTimeSig is unique
+ *  4: repeat subRanPrevVal ← random number
+ *  5: until (compileTimeSig + subRanPrevVal) is unique
+ */
 void RACFED::initializeBlocksSignatures(Function &Fn) {
   std::mt19937 rng(0xB00BA5); // constant seed for reproducibility
   uint32_t randomBB;
@@ -129,7 +143,6 @@ void RACFED::initializeBlocksSignatures(Function &Fn) {
   }
 }
 
-
 // --------- INSERT UPDATES AFTER INSTRUCTIONS  -----------
 
 /**
@@ -137,62 +150,80 @@ void RACFED::initializeBlocksSignatures(Function &Fn) {
  */
 void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstructions) {
   for (Instruction &I : BB) {
-    if ( isa<PHINode>(&I) ) continue; // NON è originale
-    if ( I.isTerminator() ) continue; // NON è originale
-    // debug, ignora OrigInstructions.push_back(&I);
+    if ( isa<PHINode>(&I) ) continue; // NOT ORIGINAL
+    if ( I.isTerminator() ) continue; // NOT ORIGINAL
     if ( isa<DbgInfoIntrinsic>(&I) ) continue;
     OrigInstructions.push_back(&I);
   }
 }
 
+/*
+ * insertIntraInstructionUpdates
+ *  6:for all BB in CFG do
+ *  7:   if NrInstrBB > 2 then
+ *  8:    for all original instructions insert after
+ *  9:      signature ← signature + random number
+ */
 void RACFED::insertIntraInstructionUpdates(Function &Fn,
 				    GlobalVariable *RuntimeSigGV, 
 				    Type *IntType) {
-  std::mt19937 rng(0xC0FFEE); // seed fisso per riproducibilità
+  std::mt19937 rng(0xC0FFEE); // fixed seed for reproducibility
 
+  // 6: for all BB in CFG do
   for (auto &BB: Fn){
     std::vector<Instruction*> OrigInstructions;
     originalInstruction(BB, OrigInstructions);
 
+    // 7: if NrInstrBB > 2 then
     if ( OrigInstructions.size() <= 2 ) continue;
 
     uint64_t partial_sum = 0;
 
+    // 8: for all original instructions insert after
     for (Instruction *I : OrigInstructions) {
       Instruction *InsertPt = nullptr;
 
-      // Non puoi inserire "dopo" un terminator: inserisci prima del terminator stesso
       if ( I->isTerminator() ) {
         InsertPt = I; // insert BEFORE terminator
       } else {
-        InsertPt = I->getNextNode(); // insert BEFORE next instruction (equivale a "dopo I")
+        InsertPt = I->getNextNode(); // insert BEFORE next instruction (equivalent to "after I")
       }
 
-      IRBuilder<> B(InsertPt);
+      IRBuilder<> InstrIR(InsertPt);
 
-      // signature = signature + randomConstant
+      // 9: signature ← signature + random number
       uint64_t K = dist32(rng);
       partial_sum += K;
 
-      Value *Sig = B.CreateLoad(IntType, RuntimeSigGV);
-      Value *NewSig = B.CreateAdd(Sig, ConstantInt::get(IntType, K), "sig_add");
-      B.CreateStore(NewSig, RuntimeSigGV);
-      sumIntraInstruction[&BB] = partial_sum;
+      Value *Sig = InstrIR.CreateLoad(IntType, RuntimeSigGV);
+      Value *NewSig = InstrIR.CreateAdd(Sig, ConstantInt::get(IntType, K), "sig_add");
+      InstrIR.CreateStore(NewSig, RuntimeSigGV);
     }
+    // Track total sum
+    sumIntraInstruction[&BB] = partial_sum;
   }
 }
 
 // --------- CHECK BLOCKS AT JUMP END ---------
-// FIXME: Fix warnings
+
+/*
+ * checkJumpSignature
+ *  10:for all BB in CFG insert at beginning
+ *  11:  signature ← signature − subRanPrevVal
+ *  12:  if signature != compileTimeSig error()
+ *  13:for all BB in CFG do
+ */
 void RACFED::checkJumpSignature(BasicBlock &BB,
 				GlobalVariable *RuntimeSigGV, Type *IntType,
 				BasicBlock &ErrBB) {
   if ( BB.isEntryBlock() ) return;
 
-  // in this case BB is not the first Basic Block of the function, so it has
-  // to update RuntimeSig and check it
-  Instruction *FirstNonPHI = BB.getFirstNonPHI();
-  if ( (FirstNonPHI && isa<LandingPadInst>(FirstNonPHI)) ||
+  // FIXME: Fix warnings
+
+  // In this case BB is not the first Basic Block of the function, 
+  // so it has to update RuntimeSig and check it
+  auto FirstNonPHI = BB.getFirstNonPHIIt();
+  if ( (FirstNonPHI != BB.end() && isa<LandingPadInst>(FirstNonPHI)) ||
      BB.getName().contains_insensitive("verification") ) {
 
     if ( BB.getFirstInsertionPt() == BB.end() ) return; // Skip empty/invalid blocks
@@ -201,68 +232,66 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
     IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
     BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB), RuntimeSigGV, true);
   } else if ( !BB.getName().contains_insensitive("errbb") ) {
-    int randomNumberBB = compileTimeSig.find(&BB)->second;
-    int subRanPrevVal = subRanPrevVals.find(&BB)->second;
-    BasicBlock *NewBB = BasicBlock::Create(
-    BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB);
-    IRBuilder<> BChecker(NewBB);
+    // Get compile signatures
+    int compileTimeSigCurrBB = compileTimeSig.find(&BB)->second;
+    int subRanPrevValCurrBB = subRanPrevVals.find(&BB)->second;
+    // Create verification basic block
+    BasicBlock *VerificationBB = BasicBlock::Create(
+      BB.getContext(), "RACFED_Verification_BB", BB.getParent(), &BB
+    );
+    IRBuilder<> BChecker(VerificationBB);
 
-    // add instructions for the first runtime signature update
+    // Add instructions for the first runtime signature update
     Value *InstrRuntimeSig =
     BChecker.CreateLoad(IntType, RuntimeSigGV, true);
 
+    // 11: signature ← signature − subRanPrevVal
     Value *RuntimeSignatureVal = BChecker.CreateSub(
-    InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevVal));
+    InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevValCurrBB));
     BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV, true);
 
     // update phi placing them in the new block
     while (isa<PHINode>(&BB.front())) {
       Instruction *PhiInst = &BB.front();
       PhiInst->removeFromParent();
-      PhiInst->insertBefore(&NewBB->front());
+      PhiInst->insertBefore(&VerificationBB->front());
     }
 
-    // replace the uses of BB with NewBB
-    BB.replaceAllUsesWith(NewBB);
+    // replace the uses of BB with VerificationBB
+    BB.replaceAllUsesWith(VerificationBB);
 
     // Fix PHI nodes in successors
-    // replaceAllUsesWith updates PHI nodes in successors to point to NewBB,
-    // but the actual control flow is NewBB -> BB -> Succ, so Succ still sees BB
+    // replaceAllUsesWith updates PHI nodes in successors to point to VerificationBB,
+    // but the actual control flow is VerificationBB -> BB -> Succ, so Succ still sees BB
     // as predecessor.
     for (BasicBlock *Succ : successors(&BB)) {
       for (PHINode &Phi : Succ->phis()) {
         for (unsigned i = 0; i < Phi.getNumIncomingValues(); ++i) {
-          if ( Phi.getIncomingBlock(i) == NewBB ) {
+          if ( Phi.getIncomingBlock(i) == VerificationBB ) {
             Phi.setIncomingBlock(i, &BB);
           }
         }
       }
     }
 
+    // 12: if signature != compileTimeSig error()
     // add instructions for checking the runtime signature
-    Value *CmpVal =
-    BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
-		       llvm::ConstantInt::get(IntType, randomNumberBB));
+    Value *CmpVal = BChecker.CreateCmp(
+      llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal,
+      llvm::ConstantInt::get(IntType, compileTimeSigCurrBB)
+    );
     BChecker.CreateCondBr(CmpVal, &BB, &ErrBB);
 
     // Map NewBB to the same signature requirements as BB so predecessors can
     // target it correctly
-    compileTimeSig[NewBB] = randomNumberBB;
-    subRanPrevVals[NewBB] = subRanPrevVal;
+    compileTimeSig[VerificationBB] = compileTimeSigCurrBB;
+    subRanPrevVals[VerificationBB] = subRanPrevValCurrBB;
   }
 }
 
 // --- UPDATE BRANCH SIGNATURE BEFORE JUMP ---
-Constant* expectedSignature(
-	BasicBlock *Succ, Type *IntType,
-	const std::unordered_map<BasicBlock *, uint32_t> &compileTimeSig,
-	const std::unordered_map<BasicBlock *, uint32_t> &subRanPrevVals
-) {
-  const int expected = compileTimeSig.at(Succ);
-  const int expectedSub = subRanPrevVals.at(Succ);
-  return ConstantInt::get(IntType, expected+expectedSub);
-}
 
+// TODO: Add documentation in ASPIS.h
 Value *RACFED::getCondition(Instruction &I) {
   if ( isa<BranchInst>(I) && cast<BranchInst>(I).isConditional() ) {
     if ( !cast<BranchInst>(I).isConditional() ) {
@@ -280,6 +309,10 @@ Value *RACFED::getCondition(Instruction &I) {
   }
 }
 
+#if MARTI_DEBUG
+/**
+ * Adds a call to printf to check the signature
+ */
 static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg) {
   LLVMContext &Ctx = Md.getContext();
 
@@ -301,15 +334,16 @@ static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg)
 
   B.CreateCall(Printf, {FmtStr, SigVal});
 }
+#endif
 
 /*
-* updateBeforeJump
-* 23:   for all Successor of BB do
-* 24:    adjustValue ← (compileTimeSigBB + \Sum{instrMonUpdates}) -
-* 25:     (compileTimeSigsuccs + subRanPrevValsuccs)
-* 26:   Insert signature update at BB end
-* 27:     signature ← signature + adjustValue
-*/
+ * updateBeforeJump
+ *  23:   for all Successor of BB do
+ *  24:    adjustValue ← (compileTimeSigBB + SumIntraInstructions) -
+ *  25:     (compileTimeSigSuccs + subRanPrevValSuccs)
+ *  26:   Insert signature update at BB end
+ *  27:     signature ← signature + adjustValue
+ */
 void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *RuntimeSigGV,
 			   Type *IntType) {
   Instruction *Term = BB.getTerminator();
@@ -376,27 +410,28 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
   }
 }
 
+// --- CHECK ON RETURN ---
 
-
-// --- CHECK RETURN UPDATE VALUE ---
-// checkRetVal:
-//
-// 14: if Last Instr. is return instr. and NrIntrBB > 1 then
-// 15:   Calculate needed variables
-// 16:     returnVal ← random number
-// 17:     adjustValue ← (compileTimeSigBB + Sum) -
-// 18:                 returnVal
-// 19:   Insert signature update before return instr.
-// 20:     signature ← signature + adjustValue
-// 21:     if signature != returnVal error()
-Instruction *RACFED::checkReturnValue(BasicBlock &BB,
+/*
+ * checkOnReturn
+ *  14: if Last Instr. is return instr. and NrIntrBB > 1 then
+ *  15:   Calculate needed variables
+ *  16:     return Val ← random number
+ *  17:     adjust Value ← (compileTimeSigBB + SumIntraInstructions) -
+ *  18:                 return Val
+ *  19:   Insert signature update before return instr.
+ *  20:     signature ← signature + adjustValue
+ *  21:     if signature != returnVal error()
+ */
+Instruction *RACFED::checkOnReturn(BasicBlock &BB,
 			      GlobalVariable *RuntimeSigGV, 
 			      Type* IntType, BasicBlock &ErrBB,
 			      Value *BckupRunSig) {
 
   // Uniform distribution for 64 bits numbers.
   std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
-  // Constant seed for 64 bits
+  // Constant seed for 64 bits.
+  // Fixed for reproducibility.
   std::mt19937 rng64(0x5EED00);
 
   Instruction *Term = BB.getTerminator();
@@ -405,7 +440,8 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 
   std::vector<Instruction*> org_instr;
   originalInstruction(BB, org_instr);
-  if ( org_instr.size() > 2 ) {
+  // 14: if Last Instr. is return instr. and NrIntrBB > 1 then
+  if ( org_instr.size() > 1 ) {
 
     // Splits the BB that contains the return instruction into
     // two basic blocks:
@@ -430,15 +466,15 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 
     // Inserting instructions into ControlBB
     IRBuilder<> ControlIR(ControlBB);
-    // 15:   Calculate needed variables
     // 16:     returnVal ← random number
+    uint64_t random_ret_value = dist64(rng64);
     // 17:     adjustValue ← (compileTimeSigBB + Sum) -
     // 18:                 returnVal
-    uint64_t random_ret_value = dist64(rng64);
+    //
     // This is a 64 bit SIGNED integer (cause a subtraction happens
     // and it cannot previously be established that it will be positive)
-    long int adj_value = compileTimeSig[&BB] + sumIntraInstruction[&BB] 
-      - random_ret_value;
+    long int adj_value = static_cast<uint64_t>(compileTimeSig[&BB]) 
+      + sumIntraInstruction[&BB] - random_ret_value;
 
     // 19:   Insert signature update before return instr.
     // 20:     signature ← signature + adjustValue // wrong must be subtracted
@@ -457,6 +493,7 @@ Instruction *RACFED::checkReturnValue(BasicBlock &BB,
 PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   auto *I64 = llvm::Type::getInt64Ty(Md.getContext());
 
+  // Runtime signature defined as a global variable
   GlobalVariable *RuntimeSig = new GlobalVariable(
     Md, I64,
     /*isConstant=*/false,
@@ -464,8 +501,6 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     ConstantInt::get(I64, 0),
     "signature"
   );
-
-  Instruction *RetInst = nullptr;
 
   createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
@@ -501,40 +536,46 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     CompiledFuncs.insert(&Fn);
     #endif
 
-    // Create error basic block
     assert(!getLinkageName(linkageMap,"SigMismatch_Handler").empty() 
 	   && "Function SigMismatch_Handler is missing!");
 
+    // Create error basic block
     BasicBlock *ErrBB = BasicBlock::Create(Fn.getContext(), "ErrBB", &Fn);
+    // Define instruction call to SigMismatch_Handler
     auto CalleeF = ErrBB->getModule()->getOrInsertFunction(
       getLinkageName(linkageMap,"SigMismatch_Handler"),
       FunctionType::getVoidTy(Md.getContext())
     );
 
     IRBuilder<> ErrIR(ErrBB);
+    // Add call instruction to function SigMismatch_Handler
     ErrIR.CreateCall(CalleeF)->setDebugLoc(debugLoc);
     ErrIR.CreateUnreachable();
+    
+    // Initialize runtime signature backup
+    Value *runtime_sign_bkup = nullptr;
+    // Initialize return instruction: used to reinstate the runtime signature of the callee
+    Instruction *ret_inst = nullptr;
 
-    Value * runtime_sign_bkup = nullptr;
     for (BasicBlock &BB : Fn) {
       // Backup of compile time sign when entering a function
       if ( BB.isEntryBlock() ) {
         IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	if ( Fn.getName() != "main" ) {
-	  runtime_sign_bkup =
-	    InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
-	}
+	runtime_sign_bkup =
+	  InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	// Set runtime signature to compile time signature 
+	// of the function's entry block.
 	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
 	  RuntimeSig);
       }
 
       checkJumpSignature(BB, RuntimeSig, I64, *ErrBB);
-      RetInst = checkReturnValue(BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
+      ret_inst = checkOnReturn(BB, RuntimeSig, I64, *ErrBB, runtime_sign_bkup);
       updateBeforeJump(Md, BB, RuntimeSig, I64);
 
       // Restore signature on return
-      if ( RetInst != nullptr && Fn.getName() != "main") {
-	      IRBuilder<> RetInstIR(RetInst);
+      if ( ret_inst != nullptr ) {
+	      IRBuilder<> RetInstIR(ret_inst);
 	      RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
       }
     }
