@@ -46,16 +46,18 @@ def execute_binary(local_build_dir, test_name):
 def pytest_generate_tests(metafunc):
     """Custom hook to parametrize tests based on the CLI --tests-file flag."""
     if "test_data" in metafunc.fixturenames:
-        # Get the file path from the command line option
-        file_path = metafunc.config.getoption("--tests-file")
-        with open(file_path, "rb") as f:
-         config_data = tomllib.load(f)
+        tests_file_paths = metafunc.config.getoption("--tests-file")
+        test_list = []
+        for file_path in tests_file_paths:
+            with open(file_path, "rb") as f:
+             config_data = tomllib.load(f)
 
-        # Access the 'tests' list inside the TOML dictionary
-        test_list = config_data.get("tests", [])
+            # Access the 'tests' list inside the TOML dictionary
+            test_list.extend(config_data.get("tests", []))
 
-        # Use 'test_name' for better output in the terminal
-        ids = [t.get("test_name", str(i)) for i, t in enumerate(test_list)]
+            # Use 'test_name' for better output in the terminal
+            ids = [t.get("test_name", str(i)) for i, t in enumerate(test_list)]
+
         metafunc.parametrize("test_data", test_list, ids=ids)
 # Tests
 def test_aspis(test_data, use_container, aspis_addopt):

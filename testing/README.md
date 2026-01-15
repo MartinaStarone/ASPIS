@@ -36,7 +36,7 @@ It is possible to write different configuration test files.
 
 Additional flags are:
 `--suffix <version>` : Operates the same way as aspis, searching for binaries versions denoted by `<version>`.
-`--tests-file <path_to_config_file>` : Use the configuration file specified.
+`--tests-file <path_to_config_file_1> <path_to_config_file_2> ...` : Use the configuration files specified.
 
 
 ## Docker Testing

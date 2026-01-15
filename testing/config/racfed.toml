@@ -100,3 +100,9 @@ source_file = "c/misc_math/xor_cypher.c"
 expected_output = "SUCCESS"
 aspis_options = "--no-dup --racfed"
 
+[[tests]]
+test_name = "racfed_ml_multi_if_else"
+source_file = "c/multi_instruction/multi_if_then_else.c"
+expected_output = "r > 200"
+aspis_options = "--no-dup --racfed"
+
