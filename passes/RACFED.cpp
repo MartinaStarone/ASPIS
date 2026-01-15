@@ -50,6 +50,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include <random>
+#include <stdlib.h>
 
 #define MARTI_DEBUG false
 
@@ -120,7 +121,8 @@ bool isNotUnique(
  *  5: until (compileTimeSig + subRanPrevVal) is unique
  */
 void RACFED::initializeBlocksSignatures(Function &Fn) {
-  std::mt19937 rng(0xB00BA5); // constant seed for reproducibility
+  std::random_device rd;
+  std::mt19937 rng(rd()); 
   uint32_t randomBB;
   uint32_t randomSub;
 
@@ -165,7 +167,8 @@ void originalInstruction(BasicBlock &BB, std::vector<Instruction*> &OrigInstruct
 void RACFED::insertIntraInstructionUpdates(Function &Fn,
 				    GlobalVariable *RuntimeSigGV, 
 				    Type *IntType) {
-  std::mt19937 rng(0xC0FFEE); // fixed seed for reproducibility
+  std::random_device rd;
+  std::mt19937 rng(rd()); 
 
   // 6: for all BB in CFG do
   for (auto &BB: Fn){
@@ -428,7 +431,8 @@ Instruction *RACFED::checkOnReturn(BasicBlock &BB,
   std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
   // Constant seed for 64 bits.
   // Fixed for reproducibility.
-  std::mt19937 rng64(0x5EED00);
+  std::random_device rd;
+  std::mt19937 rng64(rd()); 
 
   Instruction *Term = BB.getTerminator();
 
