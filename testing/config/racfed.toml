@@ -25,7 +25,7 @@ aspis_options = "--no-dup --racfed"
 [[tests]]
 test_name = "racfed_ml_phi_instruction"
 source_file = "c/multi_instruction/phi.c"
-expected_output = "1"
+expected_output = "SUCCESS"
 aspis_options = "--no-dup --racfed"
 
 [[tests]]

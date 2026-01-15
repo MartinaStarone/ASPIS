@@ -59,8 +59,6 @@ using namespace llvm;
 
 // TODO: Check TODOs in updateBeforeJump
 
-// TODO: Fix warnings in checkJump
-
 /// Uniform distribution for 32 bits numbers.
 ///
 /// In each function using this distribution a different seed will be used.
@@ -218,8 +216,6 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
 				BasicBlock &ErrBB) {
   if ( BB.isEntryBlock() ) return;
 
-  // FIXME: Fix warnings
-
   // In this case BB is not the first Basic Block of the function, 
   // so it has to update RuntimeSig and check it
   auto FirstNonPHI = BB.getFirstNonPHIIt();
@@ -254,7 +250,7 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
     while (isa<PHINode>(&BB.front())) {
       Instruction *PhiInst = &BB.front();
       PhiInst->removeFromParent();
-      PhiInst->insertBefore(&VerificationBB->front());
+      PhiInst->insertInto(VerificationBB, VerificationBB->getFirstInsertionPt());
     }
 
     // replace the uses of BB with VerificationBB
