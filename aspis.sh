@@ -163,21 +163,20 @@ EOF
                         fi;
                         ;;
                     --llvm-bin*)
-			echo ${#opt}
                         if [[ ${#opt} -eq 10 ]]; then
                             parse_state=3;
                         else
                             llvm_bin=${opt##"--llvm-bin="};
                         fi;
                         ;;
-		    --suffix*)
-			if [[ ${#opt} -eq 8 ]]; then
+                    --suffix*)
+                        if [[ ${#opt} -eq 8 ]]; then
                             parse_state=7;
-			else
-			    suffix='-';
-			    suffix+=${opt##"--suffix="};
-			fi;
-			;;
+                        else
+                            suffix='-';
+                            suffix+=${opt##"--suffix="};
+                        fi;
+                        ;;
                     --exclude*)
                         if [[ ${#opt} -eq 9 ]]; then
                             parse_state=4;
@@ -283,11 +282,11 @@ EOF
                 build_dir="$opt";
                 parse_state=0;
                 ;;
-	    7)
-		suffix="-$opt";
-		parse_state=0;
-		;;
-        esac
+            7)
+              suffix="-$opt";
+              parse_state=0;
+              ;;
+      esac
     done
 
     if [[ $verbose == true ]]; then

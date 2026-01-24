@@ -1,2 +1,3 @@
 #llvm_bin = "<path/to/your/llvm/bin>"
-llvm_bin = "/mnt/build/bin/"
+#llvm_bin = "/mnt/build/bin/"
+llvm_bin = "/usr/bin"

@@ -39,7 +39,7 @@ using namespace llvm;
  *  - void return type 
  *  - a ptr to the old return type as a function argument
 */
-Function* FuncRetToRef::updateFnSignature(Function &Fn, Module &Md) {
+Function *FuncRetToRef::updateFnSignature(Function &Fn, Module &Md) {
     Type *RetType = Fn.getReturnType();
     if (RetType->isVoidTy()) {
         return NULL;

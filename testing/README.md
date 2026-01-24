@@ -14,7 +14,9 @@ pytest test.py
 > To install the modules:
 > - directly install them globally with `pip install -r requirements.txt`
 > - use a tool like conda
-> - setup a python environment `python -m venv env`
+> - setup a python environment:
+>   - `python -m venv env`
+>   - launch environment: `source env/bin/activate`
 
 ### Writing a configuration file
 
@@ -35,9 +37,13 @@ aspis_options = <compilation_flags>
 It is possible to write different configuration test files.
 
 Additional flags are:
-`--suffix <version>` : Operates the same way as aspis, searching for binaries versions denoted by `<version>`.
-`--tests-file <path_to_config_file_1> <path_to_config_file_2> ...` : Use the configuration files specified.
+- `--suffix <version>` : Operates the same way as aspis, searching for binaries versions denoted by `<version>`.
+- `--tests-file <path_to_config_file_1> <path_to_config_file_2> ...` : Use the configuration files specified.
 
+### Testing with gdb
+
+It is possible to execute all the test with instruction skipping using gdb
+- `python3 -u verify_faults.py` executes the file verify_faults.py
 
 ## Docker Testing
 
