@@ -40,11 +40,6 @@ Additional flags are:
 - `--suffix <version>` : Operates the same way as aspis, searching for binaries versions denoted by `<version>`.
 - `--tests-file <path_to_config_file_1> <path_to_config_file_2> ...` : Use the configuration files specified.
 
-### Testing with gdb
-
-It is possible to execute all the test with instruction skipping using gdb
-- `python3 -u verify_faults.py` executes the file verify_faults.py
-
 ## Docker Testing
 
 You can also test ASPIS using Docker with the `test_docker_pipeline.py` script. This Pytest script uses Docker Compose to manage the container and execute ASPIS.

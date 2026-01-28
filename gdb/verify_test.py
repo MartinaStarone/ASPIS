@@ -135,7 +135,7 @@ quit
     return passed
 
 if __name__ == "__main__":
-    tests = load_tests("config/racfed+eddi.toml")
+    tests = load_tests("../testing/config/racfed+eddi.toml")
     passed_count = 0
     total = 0
     for test in tests:
