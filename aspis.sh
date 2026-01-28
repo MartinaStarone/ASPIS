@@ -115,7 +115,7 @@ parse_commands() {
                             files.
         --llvm-bin  <path>  Set the path to the llvm binaries (clang, opt, 
                             llvm-link) to <path>.
-	--suffix    <value> Set the suffix of the binary to use (clang, opt, 
+	--suffix    <value> Set the suffix of the binaries used (clang, opt, 
 			    llvm-link) to <value>.
         --exclude   <file>  Set the files to exclude from the compilation. The 
                             content of <file> is the list of files to 
