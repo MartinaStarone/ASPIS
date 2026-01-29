@@ -115,8 +115,8 @@ parse_commands() {
                             files.
         --llvm-bin  <path>  Set the path to the llvm binaries (clang, opt, 
                             llvm-link) to <path>.
-	--suffix    <value> Set the suffix of the binaries used (clang, opt, 
-			    llvm-link) to <value>.
+        --suffix    <value> Set the suffix of the binaries used (clang, opt, 
+                            llvm-link) to <value>.
         --exclude   <file>  Set the files to exclude from the compilation. The 
                             content of <file> is the list of files to 
                             exclude, one for each line (wildcard * allowed).
@@ -132,11 +132,11 @@ parse_commands() {
         --seddi             Enable Selective-EDDI.
         --fdsc              Enable Full Duplication with Selective Checking.
         --no-dup            Completely disable data duplication.
-        
+
         --cfcss             (Default) Enable CFCSS.
         --rasm              Enable RASM.
         --inter-rasm        Enable inter-RASM with the default signature -0xDEAD.
-	--racfed            Enable RACFED.
+        --racfed            Enable RACFED.
         --no-cfc            Completely disable control-flow checking.
 
     Hardening options:

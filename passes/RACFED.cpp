@@ -437,51 +437,56 @@ Instruction *RACFED::checkOnReturn(BasicBlock &BB,
   std::vector<Instruction*> org_instr;
   originalInstruction(BB, org_instr);
   // 14: if Last Instr. is return instr. and NrIntrBB > 1 then
-  if ( org_instr.size() > 1 ) {
+  // Since the implementation is slightly different
+  // than the theoretical one, due to the possible
+  // interpretations of a basic block 
+  // this check is skipped
 
-    // Splits the BB that contains the return instruction into
-    // two basic blocks:
-    // BB will contain the return instruction
-    // BeforeRetBB will contain all of the instructions before the return one
-    //
-    // These two BBs will be linked meaning that BeforeRetBB->successor == BB
-    BasicBlock *BeforeRetBB = BB.splitBasicBlockBefore(Term);
+  // if ( org_instr.size() > 1 ) {
 
-    // Creating control basic block to insert before
-    // the return instruction
-    BasicBlock *ControlBB = BasicBlock::Create(
-      BB.getContext(), 
-      "RAFCED_ret_verification_BB", 
-      BB.getParent(),
-      &BB
-    );
+  // Splits the BB that contains the return instruction into
+  // two basic blocks:
+  // BB will contain the return instruction
+  // BeforeRetBB will contain all of the instructions before the return one
+  //
+  // These two BBs will be linked meaning that BeforeRetBB->successor == BB
+  BasicBlock *BeforeRetBB = BB.splitBasicBlockBefore(Term);
 
-    // Relinking the basic blocks so that the structure 
-    // results in: BeforeRetBB->ControlBB->BB
-    BeforeRetBB->getTerminator()->replaceSuccessorWith(&BB, ControlBB);
+  // Creating control basic block to insert before
+  // the return instruction
+  BasicBlock *ControlBB = BasicBlock::Create(
+    BB.getContext(), 
+    "RAFCED_ret_verification_BB", 
+    BB.getParent(),
+    &BB
+  );
 
-    // Inserting instructions into ControlBB
-    IRBuilder<> ControlIR(ControlBB);
-    // 16:     returnVal ← random number
-    uint64_t random_ret_value = dist64(rng64);
-    // 17:     adjustValue ← (compileTimeSigBB + Sum) -
-    // 18:                 returnVal
-    //
-    // This is a 64 bit SIGNED integer (cause a subtraction happens
-    // and it cannot previously be established that it will be positive)
-    long int adj_value = static_cast<uint64_t>(compileTimeSig[&BB]) 
-      + sumIntraInstruction[&BB] - random_ret_value;
+  // Relinking the basic blocks so that the structure 
+  // results in: BeforeRetBB->ControlBB->BB
+  BeforeRetBB->getTerminator()->replaceSuccessorWith(&BB, ControlBB);
 
-    // 19:   Insert signature update before return instr.
-    // 20:     signature ← signature + adjustValue // wrong must be subtracted
-    // 21:     if signature != returnVal error()
-    Value *Sig = ControlIR.CreateLoad(IntType, RuntimeSigGV, true, "checking_sign");
-    Value *CmpVal = ControlIR.CreateSub(Sig, llvm::ConstantInt::get(IntType, adj_value), "checking_value");
-    Value *CmpSig = ControlIR.CreateCmp(llvm::CmpInst::ICMP_EQ, CmpVal, 
-				llvm::ConstantInt::get(IntType, random_ret_value));
+  // Inserting instructions into ControlBB
+  IRBuilder<> ControlIR(ControlBB);
+  // 16:     returnVal ← random number
+  uint64_t random_ret_value = dist64(rng64);
+  // 17:     adjustValue ← (compileTimeSigBB + Sum) -
+  // 18:                 returnVal
+  //
+  // This is a 64 bit SIGNED integer (cause a subtraction happens
+  // and it cannot previously be established that it will be positive)
+  long int adj_value = static_cast<uint64_t>(compileTimeSig[&BB]) 
+    + sumIntraInstruction[&BB] - random_ret_value;
 
-    ControlIR.CreateCondBr(CmpSig, &BB, &ErrBB);
-  }
+  // 19:   Insert signature update before return instr.
+  // 20:     signature ← signature + adjustValue // wrong must be subtracted
+  // 21:     if signature != returnVal error()
+  Value *Sig = ControlIR.CreateLoad(IntType, RuntimeSigGV, true, "checking_sign");
+  Value *CmpVal = ControlIR.CreateSub(Sig, llvm::ConstantInt::get(IntType, adj_value), "checking_value");
+  Value *CmpSig = ControlIR.CreateCmp(llvm::CmpInst::ICMP_EQ, CmpVal, 
+			      llvm::ConstantInt::get(IntType, random_ret_value));
+
+  ControlIR.CreateCondBr(CmpSig, &BB, &ErrBB);
+  // }
 
   return Term;
 }
