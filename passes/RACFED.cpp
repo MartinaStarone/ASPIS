@@ -348,7 +348,6 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
   auto *BI = dyn_cast<BranchInst>(Term);
   if ( !BI ) return;
 
-  //TODO: check this
 
   // Calculate Source Static Signature: CT_BB + SumIntra
   uint64_t SourceStatic =
@@ -358,8 +357,6 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
   #if MARTI_DEBUG
   printSig(Md, B, Current, "current");
   #endif
-
-  //TODO: until here
 
   //define if conditional or unconditional branch
   //Conditional: expected= CT_succ+subRan_succ
@@ -562,8 +559,10 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       // Backup of compile time sign when entering a function
       if ( BB.isEntryBlock() ) {
         IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
-	runtime_sign_bkup =
-	  InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	if ( Fn.getName() != "main" ) {
+	  runtime_sign_bkup =
+	    InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	}
 	// Set runtime signature to compile time signature 
 	// of the function's entry block.
 	InstrIR.CreateStore(llvm::ConstantInt::get(I64, compileTimeSig[&BB]),
@@ -575,7 +574,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
       updateBeforeJump(Md, BB, RuntimeSig, I64);
 
       // Restore signature on return
-      if ( ret_inst != nullptr ) {
+      if ( ret_inst != nullptr && Fn.getName() != "main") {
 	      IRBuilder<> RetInstIR(ret_inst);
 	      RetInstIR.CreateStore(runtime_sign_bkup, RuntimeSig);
       }
