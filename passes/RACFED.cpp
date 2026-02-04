@@ -56,10 +56,9 @@
 
 using namespace llvm;
 
-// TODO: Seeds could be randomised
 
-// TODO: Check TODOs in updateBeforeJump
-
+#define DISTR_START 1
+#define DISTR_END 0x7fffffff
 /// Uniform distribution for 32 bits numbers.
 ///
 /// In each function using this distribution a different seed will be used.
@@ -68,7 +67,7 @@ using namespace llvm;
 /// The range doesn't encapsulate the complete representation of 32 bits unsigned,
 /// this was a design choice since multiple 32 bits are sum between each
 /// other throughout the algorithm thus no overflow should occur when summing.
-std::uniform_int_distribution<uint32_t> dist32(1, 0x7fffffff);
+std::uniform_int_distribution<uint32_t> dist32(DISTR_START, DISTR_END);
 
 // -------- INITIALIZE BLOCKS SIGNATURES --------
 
@@ -322,7 +321,7 @@ static void printSig(Module &Md, IRBuilder<> &B, Value *SigVal, const char *Msg)
                         PointerType::getUnqual(Ctx),
                         true));
 
-  // Crea stringa globale "Msg: %ld\n"
+  // Generates global string "Msg: %ld\n"
   std::string Fmt = std::string(Msg) + ": %ld\n";
   Value *FmtStr = B.CreateGlobalString(Fmt);
 
@@ -425,7 +424,7 @@ Instruction *RACFED::checkOnReturn(BasicBlock &BB,
 			      Value *BckupRunSig) {
 
   // Uniform distribution for 64 bits numbers.
-  std::uniform_int_distribution<uint64_t> dist64(1, 0x7fffffff);
+  std::uniform_int_distribution<uint64_t> dist64(DISTR_START, DISTR_END);
   // Constant seed for 64 bits.
   // Fixed for reproducibility.
   std::random_device rd;
