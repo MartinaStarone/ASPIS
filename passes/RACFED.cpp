@@ -27,8 +27,8 @@
  * checkOnReturn
  *  14: if Last Instr. is return instr. and NrIntrBB > 1 then
  *  15:   Calculate needed variables
- *  16:     return Val ← random number
- *  17:     adjust Value ← (compileTimeSigBB + SumIntraInstructions) -
+ *  16:     returnVal ← random number
+ *  17:     adjustValue ← (compileTimeSigBB + SumIntraInstructions) -
  *  18:                 return Val
  *  19:   Insert signature update before return instr.
  *  20:     signature ← signature + adjustValue
@@ -226,7 +226,7 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
 
     int randomNumberBB = compileTimeSig.find(&BB)->second;
     IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
-    BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB), RuntimeSigGV, true);
+    BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB), RuntimeSigGV);
   } else if ( !BB.getName().contains_insensitive("errbb") ) {
     // Get compile signatures
     int compileTimeSigCurrBB = compileTimeSig.find(&BB)->second;
@@ -239,12 +239,12 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
 
     // Add instructions for the first runtime signature update
     Value *InstrRuntimeSig =
-    BChecker.CreateLoad(IntType, RuntimeSigGV, true);
+    BChecker.CreateLoad(IntType, RuntimeSigGV);
 
     // 11: signature ← signature − subRanPrevVal
     Value *RuntimeSignatureVal = BChecker.CreateSub(
     InstrRuntimeSig, llvm::ConstantInt::get(IntType, subRanPrevValCurrBB));
-    BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV, true);
+    BChecker.CreateStore(RuntimeSignatureVal, RuntimeSigGV);
 
     // update phi placing them in the new block
     while (isa<PHINode>(&BB.front())) {
@@ -366,8 +366,8 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
     uint64_t SuccExpected =
       static_cast<uint64_t>(compileTimeSig[Succ] + subRanPrevVals[Succ]);
     // adj = expected - current
-    uint64_t AdjValue = SuccExpected - SourceStatic;
-    Value *Adj = ConstantInt::get(IntType, AdjValue);
+    long int adj_value = SuccExpected - SourceStatic;
+    Value *Adj = ConstantInt::get(IntType, adj_value);
     Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
     B.CreateStore(NewSig, RuntimeSigGV);
     #if MARTI_DEBUG
@@ -386,12 +386,12 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
     // Target T
     uint64_t expectedT =
         static_cast<uint64_t>(compileTimeSig[SuccT] + subRanPrevVals[SuccT]);
-    uint64_t adj1 = expectedT - SourceStatic;
+    long int adj1 = expectedT - SourceStatic;
 
     // Target F
     uint64_t expectedF =
         static_cast<uint64_t>(compileTimeSig[SuccF] + subRanPrevVals[SuccF]);
-    uint64_t adj2 = expectedF - SourceStatic;
+    long int adj2 = expectedF - SourceStatic;
 
     Value *Adj = B.CreateSelect(BrCondition, ConstantInt::get(IntType, adj1), ConstantInt::get(IntType, adj2));
     Value *NewSig = B.CreateAdd(Current, Adj, "racfed_newsig");
@@ -409,8 +409,8 @@ void RACFED::updateBeforeJump(Module &Md, BasicBlock &BB,  GlobalVariable *Runti
  * checkOnReturn
  *  14: if Last Instr. is return instr. and NrIntrBB > 1 then
  *  15:   Calculate needed variables
- *  16:     return Val ← random number
- *  17:     adjust Value ← (compileTimeSigBB + SumIntraInstructions) -
+ *  16:     returnVal ← random number
+ *  17:     adjustValue ← (compileTimeSigBB + SumIntraInstructions) -
  *  18:                 return Val
  *  19:   Insert signature update before return instr.
  *  20:     signature ← signature + adjustValue
@@ -422,7 +422,7 @@ Instruction *RACFED::checkOnReturn(BasicBlock &BB,
 			      Value *BckupRunSig) {
 
   // Uniform distribution for 64 bits numbers.
-  std::uniform_int_distribution<uint64_t> dist64(1, 0xffffffff);
+  std::uniform_int_distribution<uint64_t> dist64(1, 0x7fffffff);
   // Constant seed for 64 bits.
   // Fixed for reproducibility.
   std::mt19937 rng64(0x5EED00);
@@ -477,7 +477,7 @@ Instruction *RACFED::checkOnReturn(BasicBlock &BB,
   // 19:   Insert signature update before return instr.
   // 20:     signature ← signature + adjustValue // wrong must be subtracted
   // 21:     if signature != returnVal error()
-  Value *Sig = ControlIR.CreateLoad(IntType, RuntimeSigGV, true, "checking_sign");
+  Value *Sig = ControlIR.CreateLoad(IntType, RuntimeSigGV, "checking_sign");
   Value *CmpVal = ControlIR.CreateSub(Sig, llvm::ConstantInt::get(IntType, adj_value), "checking_value");
   Value *CmpSig = ControlIR.CreateCmp(llvm::CmpInst::ICMP_EQ, CmpVal, 
 			      llvm::ConstantInt::get(IntType, random_ret_value));
@@ -504,18 +504,12 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   getFuncAnnotations(Md, FuncAnnotations);
   LinkageMap linkageMap = mapFunctionLinkageNames((Md));
 
-  for (Function &Fn : Md) {
-    if (shouldCompile(Fn, FuncAnnotations))
-      initializeBlocksSignatures(Fn);
-  }
-
-  for (Function &Fn: Md) {
-    if (Fn.isDeclaration() || Fn.empty()) continue;
-    insertIntraInstructionUpdates(Fn, RuntimeSig, I64);
-  }
-
   for(Function &Fn: Md) {
     if (!shouldCompile(Fn, FuncAnnotations)) continue;
+
+    initializeBlocksSignatures(Fn);
+    if (!Fn.isDeclaration() && !Fn.empty())
+      insertIntraInstructionUpdates(Fn, RuntimeSig, I64);
 
     #if MARTI_DEBUG
     errs() << "Analysing func " << Fn.getName() << "\n";
@@ -552,7 +546,8 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
     
     // Initialize runtime signature backup
     Value *runtime_sign_bkup = nullptr;
-    // Initialize return instruction: used to reinstate the runtime signature of the callee
+    // Initialize return instruction: used to reinstate 
+    // the runtime signature of the callee
     Instruction *ret_inst = nullptr;
 
     for (BasicBlock &BB : Fn) {
@@ -561,7 +556,7 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
         IRBuilder<> InstrIR(&*BB.getFirstInsertionPt());
 	if ( Fn.getName() != "main" ) {
 	  runtime_sign_bkup =
-	    InstrIR.CreateLoad(I64, RuntimeSig, true, "backup_run_sig");
+	    InstrIR.CreateLoad(I64, RuntimeSig, "backup_run_sig");
 	}
 	// Set runtime signature to compile time signature 
 	// of the function's entry block.
