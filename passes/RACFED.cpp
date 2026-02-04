@@ -503,12 +503,12 @@ PreservedAnalyses RACFED::run(Module &Md, ModuleAnalysisManager &AM) {
   createFtFuncs(Md);
   getFuncAnnotations(Md, FuncAnnotations);
   LinkageMap linkageMap = mapFunctionLinkageNames((Md));
-
-  for(Function &Fn: Md) {
+  
+  for (Function &Fn: Md) {
     if (!shouldCompile(Fn, FuncAnnotations)) continue;
 
     initializeBlocksSignatures(Fn);
-    if (!Fn.isDeclaration() && !Fn.empty())
+    if (!(Fn.isDeclaration() || Fn.empty()))
       insertIntraInstructionUpdates(Fn, RuntimeSig, I64);
 
     #if MARTI_DEBUG

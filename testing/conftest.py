@@ -11,8 +11,8 @@ def pytest_addoption(parser):
     parser.addoption(
         "--tests-file",
         action="store",
-        nargs="*",
-        default="config/tests.toml",
+        nargs="+",
+        default=["config/tests.toml"],
         help="Path to the configuration file",
     )
     parser.addoption(
