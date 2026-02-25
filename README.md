@@ -13,6 +13,9 @@ The toolchain has been tested with the following versions:
 - CMake 3.22.1 | 4.2.3
 - LLVM 21.1.8
 
+> RASM, RACFED and EDDI algorithm are already patched to LLVM 21. 
+> Patching of the other algorithms will is being done in branch patch-16-to-21.
+
 During the development of ASPIS, done mostly on LLVM 15, we discovered a bug in the [`splitBasicBlock()`](https://llvm.org/doxygen/classllvm_1_1BasicBlock.html#a2bc5caaabd6841e4ab97237ebcaeb86d) procedure. The bug has been fixed in LLVM 16, so we recommend using it rather than applying the patch to the previous versions. 
 
 > ASPIS has been ported to LLVM 21
@@ -81,6 +84,9 @@ ASPIS does not compile the annotated function or does not duplicate the annotate
 
 ## Built-in compilation pipeline
 `aspis.sh` is a simple command-line interface that allows users to run the entire compilation pipeline specifying a few command-line arguments. The arguments that are not recognised are passed directly to the front-end, hence all the `clang` arguments are admissible.
+
+> RASM, RACFED and EDDI algorithm are already patched to LLVM 21. 
+> Patching of the other algorithms will is being done in branch patch-16-to-21.
 
 ### Options
  - `-h`, `--help`: Display available options.
@@ -187,6 +193,11 @@ Then, apply the last pass and emit the executable:
 opt -S -load-pass-plugin </path/to/ASPIS/>build/passes/libEDDI.so -passes="duplicate-globals" out.ll -o out.ll
 clang out.ll -o out.elf
 ```
+
+> With newer versions of LLVM:
+> --enable-new-pm is no longer valid.
+> -load has been replaced by -load-pass-plugin=</path/to/ASPIS/>build/passes/lib*.so -passes="passname"
+
 
 ## References
 If you are using this tool in scientific works, please cite the following article:
