@@ -1,4 +1,4 @@
-/****************************************************************************************
+/**************************************************************************************
  * @brief LLVM pass implementing Random Additive Control Flow Error Detection (RACFED).
  * 	  Original algorithm by Vankeirsbilck et Al. (DOI: 10.1007/978-3-319-99130-6_15)
  *

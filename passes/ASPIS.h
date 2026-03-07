@@ -127,6 +127,10 @@ class CFCSS : public PassInfoMixin<CFCSS> {
         static bool isRequired() { return true; }
 };
 
+/*
+ * @brief Pass implementing Random Additive Signature Monitoring
+ * (RASM) algorithm. Enables control flow error checking at branching points.
+ */
 class RASM : public PassInfoMixin<RASM> {
     private:
         std::map<Value*, StringRef> FuncAnnotations;
@@ -136,11 +140,54 @@ class RASM : public PassInfoMixin<RASM> {
         std::set<Function*> CompiledFuncs;
         #endif
 
-        void initializeBlocksSignatures(Module &Md, std::map<BasicBlock*, int> &RandomNumberBBs, std::map<BasicBlock*, int> &SubRanPrevVals);
+	/**
+	 * Initialize compile time signature and subRanPrevVal, for
+	 * all of the basic blocks, with unique values.
+	 */
+        void initializeBlocksSignatures(Module &Md, 
+					std::map<BasicBlock*, int> &RandomNumberBBs, 
+					std::map<BasicBlock*, int> &SubRanPrevVals);
+	/**
+	 * Navigates the module's (not declared for linker and 
+	 * not externally linked) functions.
+	 * For each such function, split all the basic blocks 
+	 * at function calls, therefore creating a branching point at 
+	 * function call.
+	 *
+	 * @param Md The module for which to perform the split.
+	 *
+	 * \remark INTER_RASM only
+	 */
         void splitBBsAtCalls(Module &Md);
+	/**
+	 * Check if a Basic Block has a function call.
+	 *
+	 * @return instruction performing the call if BB has one, 
+	 * nullptr otherwise.
+	 *
+	 * \remark INTER_RASM only
+	 */
         CallBase *isCallBB (BasicBlock &BB);
         void initializeEntryBlocksMap(Module &Md);
+	/**
+	 * Check if a branch is conditional or unconditional.
+	 *
+	 * \return null pointer if not conditional, a conditional or unconditional 
+	 * branch instruction or a switch instruction.
+	 */
         Value *getCondition(Instruction &I);
+	/**
+	 * Add the control basic blocks following the RASM algorithm:
+	 * - before each branch instruction add an update to the next
+	 *   BB;
+	 * - before entering into a BB check that the runtime signature
+	 *   matches the compile-time signature of that BB;
+	 * - before returning check that the runtime signature matches the
+	 *   compile-time signature of that BB.
+	 *
+	 * \remark INTER_RASM has additional controls due to function calls being
+	 * defined as entrypoints for BBs.
+	 */
         void createCFGVerificationBB (  BasicBlock &BB, 
                                     std::map<BasicBlock*, int> &RandomNumberBBs, 
                                     std::map<BasicBlock*, int> &SubRanPrevVals, 
@@ -157,83 +204,94 @@ class RASM : public PassInfoMixin<RASM> {
 };
 
 /**
-  * @brief Pass implementing RACFED algorithm.
+  * @brief Pass implementing Random Additive Control Flow Error Detection
+  * (RACFED) algorithm. Enables intra-function instruction skipping 
+  * (more than 1 instruction) detection. 
+  * Effective check is performed on branching points.
   */
 class RACFED : public PassInfoMixin<RACFED> {
 private:
-  std::map<Value *, StringRef> FuncAnnotations;
+    std::map<Value *, StringRef> FuncAnnotations;
 
-  /**
-   * Compile time signature map.
-   *
-   * Compile time signatures are unique identifiers for the single basic block.
-   */
-  std::unordered_map<BasicBlock *, uint32_t> compileTimeSig;
+    /**
+     * Compile time signature map.
+     *
+     * Compile time signatures are unique identifiers for the single basic block.
+     */
+    std::unordered_map<BasicBlock *, uint32_t> compileTimeSig;
 
-  /**
-   * SubRanPrevVals map.
-   * 
-   * These values are added to compile time signature to identify unique
-   * branch jumps.
-   */
-  std::unordered_map<BasicBlock *, uint32_t> subRanPrevVals;
+    /**
+     * SubRanPrevVals map.
+     * 
+     * These values are added to compile time signature to identify unique
+     * branch jumps.
+     */
+    std::unordered_map<BasicBlock *, uint32_t> subRanPrevVals;
 
-  /**
-   * Instra instruction sum map.
-   *
-   * This map contains the sum of all the random values put after instructions.
-   */
-  std::unordered_map<BasicBlock *, uint64_t> sumIntraInstruction;
+    /**
+     * Instra instruction sum map.
+     *
+     * This map contains the sum of all the random values put after instructions.
+     */
+    std::unordered_map<BasicBlock *, uint64_t> sumIntraInstruction;
 
 
-  #if (LOG_COMPILED_FUNCS == 1)
-  std::set<Function *> CompiledFuncs;
-  #endif
+    #if (LOG_COMPILED_FUNCS == 1)
+    std::set<Function *> CompiledFuncs;
+    #endif
 
-  /**
-    * Initializes compile time signature and subRanPrevVal, for
-    * all of the basic blocks, with unique values.
-    */
-  void initializeBlocksSignatures(Function &Fn);
+    /**
+     * Initialize compile time signature and subRanPrevVal, for
+     * all of the basic blocks, with unique values.
+     */
+    void initializeBlocksSignatures(Function &Fn);
 
-  /**
-    * Adds updates to the runtime signature with random values
-    * after each instruction.
-    */
-  void insertIntraInstructionUpdates(Function &Fn,
-			      GlobalVariable *RuntimeSigGV, Type *IntType);
+    /**
+     * Add updates to the runtime signature with random values
+     * after each instruction.
+     */
+    void insertIntraInstructionUpdates(Function &Fn,
+				       GlobalVariable *RuntimeSigGV, 
+				       Type *IntType);
 
-  /**
-    * Adds a check on runtime signature at the entrance of non entry blocks.
-    *
-    * If the runtime signature, after some proper modifications, does not match
-    * the compile time signature a jump to an error handling block is inserted.
-    */
-  void checkJumpSignature(BasicBlock &BB,
-			  GlobalVariable *RuntimeSigGV, Type *IntType,
-			  BasicBlock &ErrBB);
+    /**
+     * Add a check on runtime signature at the entrance of non entry blocks.
+     *
+     * If the runtime signature, after some proper modifications, does not match
+     * the compile time signature a jump to an error handling block is inserted.
+     */
+    void checkJumpSignature(BasicBlock &BB,
+			    GlobalVariable *RuntimeSigGV,
+			    Type *IntType,
+			    BasicBlock &ErrBB);
 
-  // TODO: Add documentation 
-  Value *getCondition(Instruction &I);
+    /**
+     * Check if a branch is conditional or unconditional.
+     *
+     * @return null pointer if not conditional, a conditional or unconditional branch
+     * instruction or a switch instruction
+     */
+    Value *getCondition(Instruction &I);
 
-  /**
-   * Adds an update of the runtime signature before a branch instruction.
-   *
-   * This function works in conjunction with checkJumpSignature(...).
-   */
-  void updateBeforeJump(Module &Md, BasicBlock &BB, GlobalVariable *RuntimeSigGV, 
-		     Type *IntType);
+    /**
+     * Add an update of the runtime signature before a branch instruction.
+     *
+     * This function works in conjunction with checkJumpSignature(...).
+     */
+    void updateBeforeJump(Module &Md, BasicBlock &BB, 
+			  GlobalVariable *RuntimeSigGV,
+			  Type *IntType);
 
-  /**
-    * Adds a check on runtime signature before a return instruction.
-    *
-    * If the runtime signature, after some proper modifications, does not match
-    * the compile time signature a jump to an error handling block is inserted.
-    */
-  Instruction *checkOnReturn(BasicBlock &BB, 
-			GlobalVariable *RuntimeSigGV, 
-			Type *IntType, BasicBlock &ErrBB,
-			Value *BckupRunSig);
+    /**
+     * Add a check on runtime signature before a return instruction.
+     *
+     * If the runtime signature, after some proper modifications, does not match
+     * the compile time signature a jump to an error handling block is inserted.
+     */
+    Instruction *checkOnReturn(BasicBlock &BB, 
+			       GlobalVariable *RuntimeSigGV, 
+			       Type *IntType, BasicBlock &ErrBB,
+			       Value *BckupRunSig);
 
 public:
   PreservedAnalyses run(Module &Md, ModuleAnalysisManager &);
