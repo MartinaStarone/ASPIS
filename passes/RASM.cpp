@@ -18,10 +18,8 @@
 #include "Utils/Utils.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include <list>
 #include <map>
-#include <iostream>
-#include <fstream>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "rasm-verify"
@@ -30,7 +28,7 @@ using namespace llvm;
  * - 0: Disabled
  * - 1: Enabled
 */
-//#define INTRA_FUNCTION_CFC 1
+#define INTRA_FUNCTION_CFC 1
 #define INIT_SIGNATURE -0xDEAD // The same value has to be used as initializer for the signatures in the code
 
 void RASM::initializeBlocksSignatures(Module &Md, std::map<BasicBlock*, int> &RandomNumberBBs, std::map<BasicBlock*, int> &SubRanPrevVals) {
@@ -343,19 +341,45 @@ PreservedAnalyses RASM::run(Module &Md, ModuleAnalysisManager &AM) {
 
     #if (INTRA_FUNCTION_CFC == 1)
       splitBBsAtCalls(Md);
-      GlobalVariable *RuntimeSig;
-      GlobalVariable *RetSig;
-      // find the global variables required for the runtime signatures
-      for (GlobalVariable &GV : Md.globals()) {
-        if (!isa<Function>(GV) && FuncAnnotations.find(&GV) != FuncAnnotations.end()) {
-          if ((FuncAnnotations.find(&GV))->second.starts_with("runtime_sig")) {
-            RuntimeSig = &GV;
-          }
-          else if ((FuncAnnotations.find(&GV))->second.starts_with("run_adj_sig")) {
-            RetSig = &GV;
+      GlobalVariable *RuntimeSig ;
+      GlobalVariable *RetSig ;
+
+      {
+        bool initialized_runtimesig = false;
+        bool initialized_retsig = false;
+
+        // find the global variables required for the runtime signatures
+        for (GlobalVariable &GV : Md.globals()) {
+          if (!isa<Function>(GV) && FuncAnnotations.find(&GV) != FuncAnnotations.end()) {
+            if ((FuncAnnotations.find(&GV))->second.starts_with("runtime_sig")) {
+              RuntimeSig = &GV;
+              initialized_runtimesig = true;
+            } else if ((FuncAnnotations.find(&GV))->second.starts_with("run_adj_sig")) {
+              RetSig = &GV;
+              initialized_retsig = true;
+            }
           }
         }
-      } 
+
+        if (!initialized_runtimesig) {
+          RuntimeSig = new GlobalVariable(
+            Md, IntType, /*isConstant=*/false,
+            GlobalVariable::ExternalLinkage,
+            ConstantInt::get(IntType, INIT_SIGNATURE),
+            "runtime_sig"
+          );
+        }
+
+        if (!initialized_retsig) {
+          RetSig = new GlobalVariable(
+            Md, IntType, /*isConstant=*/false,
+            GlobalVariable::ExternalLinkage,
+            ConstantInt::get(IntType, INIT_SIGNATURE),
+            "run_adj_sig"
+          );
+        }
+      }
+
     #endif
 
     initializeBlocksSignatures(Md, RandomNumberBBs, SubRanPrevVals);
