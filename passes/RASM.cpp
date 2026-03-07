@@ -18,10 +18,7 @@
 #include "Utils/Utils.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include <list>
 #include <map>
-#include <iostream>
-#include <fstream>
 using namespace llvm;
 
 #define DEBUG_TYPE "rasm-verify"
@@ -343,19 +340,29 @@ PreservedAnalyses RASM::run(Module &Md, ModuleAnalysisManager &AM) {
 
     #if (INTRA_FUNCTION_CFC == 1)
       splitBBsAtCalls(Md);
-      GlobalVariable *RuntimeSig;
-      GlobalVariable *RetSig;
+      GlobalVariable *RuntimeSig = new GlobalVariable(
+	Md, IntType, /*isConstant=*/false,
+	GlobalVariable::ExternalLinkage,
+	ConstantInt::get(IntType, INIT_SIGNATURE),
+	"runtime_sig"
+      );
+      GlobalVariable *RetSig = new GlobalVariable(
+	Md, IntType, /*isConstant=*/false,
+	GlobalVariable::ExternalLinkage,
+	ConstantInt::get(IntType, INIT_SIGNATURE),
+	"run_adj_sig"
+      );
       // find the global variables required for the runtime signatures
-      for (GlobalVariable &GV : Md.globals()) {
-        if (!isa<Function>(GV) && FuncAnnotations.find(&GV) != FuncAnnotations.end()) {
-          if ((FuncAnnotations.find(&GV))->second.starts_with("runtime_sig")) {
-            RuntimeSig = &GV;
-          }
-          else if ((FuncAnnotations.find(&GV))->second.starts_with("run_adj_sig")) {
-            RetSig = &GV;
-          }
-        }
-      } 
+      // for (GlobalVariable &GV : Md.globals()) {
+      //   if (!isa<Function>(GV) && FuncAnnotations.find(&GV) != FuncAnnotations.end()) {
+      //     if ((FuncAnnotations.find(&GV))->second.starts_with("runtime_sig")) {
+      //       RuntimeSig = &GV;
+      //     }
+      //     else if ((FuncAnnotations.find(&GV))->second.starts_with("run_adj_sig")) {
+      //       RetSig = &GV;
+      //     }
+      //   }
+      // } 
     #endif
 
     initializeBlocksSignatures(Md, RandomNumberBBs, SubRanPrevVals);
