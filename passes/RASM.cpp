@@ -148,13 +148,16 @@ void RASM::createCFGVerificationBB (  BasicBlock &BB,
     int subRanPrevVal = SubRanPrevVals.find(&BB)->second;
     // in this case BB is not the first Basic Block of the function, so it has to update RuntimeSig and check it
     if (!BB.isEntryBlock()) {
-        if (isa<LandingPadInst>(BB.getFirstNonPHI()) || BB.getName().contains_insensitive("verification")) {
+	auto FirstNonPHI = BB.getFirstNonPHIIt();
+        if ((FirstNonPHI != BB.end()  && isa<LandingPadInst>(FirstNonPHI)) || 
+	  BB.getName().contains_insensitive("verification")) {
+	  if ( BB.getFirstInsertionPt() == BB.end() ) return; // Skip empty/invalid blocks
           IRBuilder<> BChecker(&*BB.getFirstInsertionPt());
           BChecker.CreateStore(llvm::ConstantInt::get(IntType, randomNumberBB),&RuntimeSig, true);
         }
         else if (!BB.getName().contains_insensitive("errbb")){
-        BasicBlock *NewBB = BasicBlock::Create(BB.getContext(), "RASM_Verification_BB", BB.getParent(), &BB);
-        IRBuilder<> BChecker(NewBB);
+	  BasicBlock *NewBB = BasicBlock::Create(BB.getContext(), "RASM_Verification_BB", BB.getParent(), &BB);
+	  IRBuilder<> BChecker(NewBB);
 
           // add instructions for the first runtime signature update
           Value *InstrRuntimeSig = BChecker.CreateLoad(IntType, &RuntimeSig, true);
@@ -166,7 +169,7 @@ void RASM::createCFGVerificationBB (  BasicBlock &BB,
           while (isa<PHINode>(&BB.front())) {
             Instruction *PhiInst = &BB.front();
             PhiInst->removeFromParent();
-            PhiInst->insertBefore(&NewBB->front());
+	    PhiInst->insertInto(NewBB, NewBB->getFirstInsertionPt());
           }
 
           // replace the uses of BB with NewBB
