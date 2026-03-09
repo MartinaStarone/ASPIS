@@ -172,12 +172,23 @@ void RASM::createCFGVerificationBB (  BasicBlock &BB,
 	    PhiInst->insertInto(NewBB, NewBB->getFirstInsertionPt());
           }
 
-          // replace the uses of BB with NewBB
-          for (BasicBlock &BB_ : *BB.getParent()) {
-            if (&BB_ != NewBB) {
-              BB_.getTerminator()->replaceSuccessorWith(&BB, NewBB);
-            }
-          }
+	  // Replace the uses of BB with VerificationBB
+ 	  BB.replaceAllUsesWith(NewBB);
+
+	  // Fix PHI nodes in successors
+	  // replaceAllUsesWith updates PHI nodes in 
+	  // successors to point to VerificationBB,
+	  // but the actual control flow is VerificationBB -> BB -> Succ, 
+	  // so Succ still sees BB as predecessor.
+	  for (BasicBlock *Succ : successors(&BB)) {
+	    for (PHINode &Phi : Succ->phis()) {
+	      for (unsigned i = 0; i < Phi.getNumIncomingValues(); ++i) {
+		if ( Phi.getIncomingBlock(i) == NewBB )
+		  Phi.setIncomingBlock(i, &BB);
+	      }
+	    }
+	  }
+
 
           // add instructions for checking the runtime signature
           Value *CmpVal = BChecker.CreateCmp(llvm::CmpInst::ICMP_EQ, RuntimeSignatureVal, llvm::ConstantInt::get(IntType, randomNumberBB));
