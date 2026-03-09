@@ -255,13 +255,13 @@ void RACFED::checkJumpSignature(BasicBlock &BB,
       PhiInst->insertInto(VerificationBB, VerificationBB->getFirstInsertionPt());
     }
 
-    // replace the uses of BB with VerificationBB
+    // Replace the uses of BB with VerificationBB
     BB.replaceAllUsesWith(VerificationBB);
 
     // Fix PHI nodes in successors
     // replaceAllUsesWith updates PHI nodes in successors to point to VerificationBB,
-    // but the actual control flow is VerificationBB -> BB -> Succ, so Succ still sees BB
-    // as predecessor.
+    // but the actual control flow is VerificationBB -> BB -> Succ, 
+    // so Succ still sees BB as predecessor.
     for (BasicBlock *Succ : successors(&BB)) {
       for (PHINode &Phi : Succ->phis()) {
         for (unsigned i = 0; i < Phi.getNumIncomingValues(); ++i) {
