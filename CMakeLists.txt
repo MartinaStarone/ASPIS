@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS on)
+
 project(ASPIS DESCRIPTION "ASPIS - Automatic Software-based Protection to Improve Safety")
 
 find_package(LLVM REQUIRED CONFIG)
@@ -18,7 +20,7 @@ include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 
 # LLVM is normally built without RTTI. Be consistent with that.
 #if(NOT LLVM_ENABLE_RTTI)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 #endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
