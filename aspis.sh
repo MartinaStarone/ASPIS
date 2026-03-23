@@ -310,9 +310,23 @@ EOF
         }
     fi
 
-    CLANG="${llvm_bin}/clang${suffix}" 
-    OPT="${llvm_bin}/opt${suffix}"
-    LLVM_LINK="${llvm_bin}/llvm-link${suffix}"
+    if command -v ${llvm_bin}/clang${suffix} >/dev/null 2>&1; then
+	CLANG="${llvm_bin}/clang${suffix}"
+    else
+	CLANG="${llvm_bin}/clang"
+    fi
+    
+    if command -v ${llvm_bin}/opt${suffix} >/dev/null 2>&1; then
+	OPT="${llvm_bin}/opt${suffix}"
+    else
+	OPT="${llvm_bin}/opt"
+    fi
+    
+    if command -v LLVM_LINK="${llvm_bin}/llvm-link${suffix}"; then
+	LLVM_LINK="${llvm_bin}/llvm-link${suffix}"
+    else
+	LLVM_LINK="${llvm_bin}/llvm-link"
+    fi
 
     if [[ -n "$config_file" ]]; then
         CLANG="${CLANG} --config ${config_file}"
