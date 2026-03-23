@@ -1,9 +1,9 @@
 /**
  * ************************************************************************************************
- * @brief  LLVM pass implementing Random Additive Signature Monitoring (RASM).
+ * \brief  LLVM pass implementing Random Additive Signature Monitoring (RASM).
  *         Original algorithm by Vankeirsbilck et Al. (DOI: 10.1109/TR.2017.2754548)
  * 
- * @author Davide Baroffio, Politecnico di Milano, Italy (davide.baroffio@polimi.it)
+ * \author Davide Baroffio, Politecnico di Milano, Italy (davide.baroffio@polimi.it)
  * ************************************************************************************************
 */
 #include "ASPIS.h"
@@ -18,10 +18,7 @@
 #include "Utils/Utils.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include <list>
 #include <map>
-#include <iostream>
-#include <fstream>
 using namespace llvm;
 
 #define DEBUG_TYPE "rasm-verify"
@@ -54,11 +51,12 @@ void RASM::initializeBlocksSignatures(Module &Md, std::map<BasicBlock*, int> &Ra
 std::map<BasicBlock*, CallBase *> CallBBs;
 std::map<Function*, BasicBlock*> FuncEntryBlocks;
 std::map<BasicBlock*, BasicBlock*> SplitBBs;
+
 /**
  * Navigates the module's (not declared for linker and not externally linked) functions.
  * For each such function, split all the basic blocks calling it before the
  * call instruction.
- * @param Md The module for which to perform the split.
+ * \param Md The module for which to perform the split.
  */
 void RASM::splitBBsAtCalls(Module &Md) {
   std::set<CallBase*> CallInstructions;
