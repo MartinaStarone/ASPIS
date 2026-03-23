@@ -128,7 +128,7 @@ class CFCSS : public PassInfoMixin<CFCSS> {
 };
 
 /*
- * @brief Pass implementing Random Additive Signature Monitoring
+ * \brief Pass implementing Random Additive Signature Monitoring
  * (RASM) algorithm. Enables control flow error checking at branching points.
  */
 class RASM : public PassInfoMixin<RASM> {
@@ -147,6 +147,7 @@ class RASM : public PassInfoMixin<RASM> {
         void initializeBlocksSignatures(Module &Md, 
 					std::map<BasicBlock*, int> &RandomNumberBBs, 
 					std::map<BasicBlock*, int> &SubRanPrevVals);
+
 	/**
 	 * Navigates the module's (not declared for linker and 
 	 * not externally linked) functions.
@@ -154,15 +155,16 @@ class RASM : public PassInfoMixin<RASM> {
 	 * at function calls, therefore creating a branching point at 
 	 * function call.
 	 *
-	 * @param Md The module for which to perform the split.
+	 * \param Md The module for which to perform the split.
 	 *
 	 * \remark INTER_RASM only
 	 */
         void splitBBsAtCalls(Module &Md);
+
 	/**
 	 * Check if a Basic Block has a function call.
 	 *
-	 * @return instruction performing the call if BB has one, 
+	 * \return instruction performing the call if BB has one, 
 	 * nullptr otherwise.
 	 *
 	 * \remark INTER_RASM only
@@ -204,7 +206,7 @@ class RASM : public PassInfoMixin<RASM> {
 };
 
 /**
-  * @brief Pass implementing Random Additive Control Flow Error Detection
+  * \brief Pass implementing Random Additive Control Flow Error Detection
   * (RACFED) algorithm. Enables intra-function instruction skipping 
   * (more than 1 instruction) detection. 
   * Effective check is performed on branching points.
@@ -268,7 +270,7 @@ private:
     /**
      * Check if a branch is conditional or unconditional.
      *
-     * @return null pointer if not conditional, a conditional or unconditional branch
+     * \return null pointer if not conditional, a conditional or unconditional branch
      * instruction or a switch instruction
      */
     Value *getCondition(Instruction &I);

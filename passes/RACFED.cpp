@@ -1,8 +1,8 @@
 /**************************************************************************************
- * @brief LLVM pass implementing Random Additive Control Flow Error Detection (RACFED).
+ * \brief LLVM pass implementing Random Additive Control Flow Error Detection (RACFED).
  * 	  Original algorithm by Vankeirsbilck et Al. (DOI: 10.1007/978-3-319-99130-6_15)
  *
- * @author Martina Starone, Gabriele Santandrea, Politecnico di Milano, Italy
+ * \author Martina Starone, Gabriele Santandrea, Politecnico di Milano, Italy
  * 	   (martina.starone@mail.polimi.it, gabriele.santandrea@mail.polimi.it)
  *
  * The RACFED algorithm is reported here.
@@ -56,9 +56,9 @@
 
 using namespace llvm;
 
-
 #define DISTR_START 1
 #define DISTR_END 0x7fffffff
+
 /// Uniform distribution for 32 bits numbers.
 ///
 /// In each function using this distribution a different seed will be used.
@@ -74,8 +74,9 @@ std::uniform_int_distribution<uint32_t> dist32(DISTR_START, DISTR_END);
 /**
  * Checks whether the compile time signature is unique.
  *
- * @param bb_num 	 compile time signature of the current analysed basic block.
- * @param compileTimeSig already assigned compile time signatures
+ * \param bb_num 	 compile time signature of the current analysed basic block.
+ * \param compileTimeSig already assigned compile time signatures.
+ * \returns 		 true if the assigned value is unique, false otherwise.
  */
 bool isNotUniqueCompileTimeSig(
   const uint32_t bb_num,
@@ -88,13 +89,14 @@ bool isNotUniqueCompileTimeSig(
 }
 
 /**
- * Checks whether the compile time signature (already unique) 
- * + second unique identifier (subRanPrevVal).
- * 
- * @param current_id     compileTimeSignature + subRanPrevVal for the 
+ * Checks whether the compile time signature (already unique)
+ * + second unique identifier (subRanPrevVal) is unique.
+ *
+ * \param current_id     compileTimeSignature + subRanPrevVal for the 
  * current basic block.
- * @param compileTimeSig already assigned compile time signatures.
- * @param subRanPrevVals already assigned subRanPrevVals.
+ * \param compileTimeSig already assigned compile time signatures.
+ * \param subRanPrevVals already assigned subRanPrevVals.
+ * \returns true if the sum of the two components is unique, false otherwise.
  */
 bool isNotUnique(
   const uint32_t current_id,
