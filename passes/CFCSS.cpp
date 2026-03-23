@@ -1,11 +1,10 @@
-/**
- * ************************************************************************************************
- * @brief  LLVM pass implementing Control Flow Checking by Software Signatures (CFCSS).
+/***************************************************************************************
+ * \brief  LLVM pass implementing Control Flow Checking by Software Signatures (CFCSS).
  *         Original algorithm by Oh et Al. (DOI: 10.1109/24.994926)
  * 
- * @author Davide Baroffio, Politecnico di Milano, Italy (davide.baroffio@polimi.it)
- * ************************************************************************************************
-*/
+ * \author Davide Baroffio, Politecnico di Milano, Italy (davide.baroffio@polimi.it)
+ **************************************************************************************/
+
 #include "ASPIS.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Attributes.h"
@@ -14,15 +13,11 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
 #include "Utils/Utils.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include <list>
 #include <llvm/IR/DebugLoc.h>
 #include <map>
-#include <iostream>
-#include <fstream>
 
 using namespace llvm;
 
@@ -30,8 +25,8 @@ using namespace llvm;
 
 /**
  * Assigns a signature to each basic block BB of the current CFG, storing the couple <BB, signature> into BBSigs
- * @param Md The module for which the basic block's signatures have to be computed
- * @param BBSigs an associative map containing Md's basic blocks associated with their signatures
+ * \param Md The module for which the basic block's signatures have to be computed
+ * \param BBSigs an associative map containing Md's basic blocks associated with their signatures
  */
 void CFCSS::initializeBlocksSignatures(Module &Md, std::map<BasicBlock*, int> &BBSigs) {
   int Counter = 1;
@@ -47,10 +42,10 @@ void CFCSS::initializeBlocksSignatures(Module &Md, std::map<BasicBlock*, int> &B
 }
 
 /**
- * @param BB The basic block for which the first predecessor is required
- * @param BBSigs The basic block list of signatures, so that the BB is found
+ * \param BB The basic block for which the first predecessor is required
+ * \param BBSigs The basic block list of signatures, so that the BB is found
  * between the ones that existed before the compilation
- * @return The first predecessor of BB
+ * \return The first predecessor of BB
  */
 BasicBlock* CFCSS::getFirstPredecessor(BasicBlock &BB,
                                 const std::map<BasicBlock*, int> &BBSigs) {
@@ -64,9 +59,9 @@ BasicBlock* CFCSS::getFirstPredecessor(BasicBlock &BB,
 }
 
 /**
- * @param BB
- * @param BBSigs
- * @return The signature of the BB's first neighbor (i.e. a basic block in BBSigs
+ * \param BB
+ * \param BBSigs
+ * \return The signature of the BB's first neighbor (i.e. a basic block in BBSigs
  * that has one successor in common with BB). Returns -1 if the number of
  * neighbors is less than N=2.
  */
@@ -113,8 +108,8 @@ bool CFCSS::hasNPredecessorsOrMore(BasicBlock &BB, int N, const std::map<BasicBl
 
 /**
  *
- * @param BBSigs
- * @param NewBBs
+ * \param BBSigs
+ * \param NewBBs
  * 
  */
 void CFCSS::sortBasicBlocks(const std::map<BasicBlock *, int> &BBSigs, const std::map<int, BasicBlock *> &NewBBs, const std::map<Function*, BasicBlock*> &FuncErrBBs) {
@@ -143,7 +138,7 @@ void CFCSS::sortBasicBlocks(const std::map<BasicBlock *, int> &BBSigs, const std
       while (isa<PHINode>(BB->front())) {
         Instruction &PHIInst = BB->front();
         PHIInst.removeFromParent();
-        PHIInst.insertBefore(&CFGVerificationBB->front());
+	PHIInst.insertInto(CFGVerificationBB, CFGVerificationBB->getFirstInsertionPt());
       }
       
       // update each predecessor Pred of BB replacing their successors BB with CFGVerificationBB
@@ -159,12 +154,13 @@ void CFCSS::sortBasicBlocks(const std::map<BasicBlock *, int> &BBSigs, const std
 /**
  * Creates a new basic block for the CFG verification of basic block BB.
  * Such basic block is added to the map NewBBs setting the signature of BB as key.
- * @param BB
- * @param BBSigs
- * @param NewBBs
- * @param ErrBB
- * @param G
- * @param D
+ *
+ * \param BB
+ * \param BBSigs
+ * \param NewBBs
+ * \param ErrBB
+ * \param G
+ * \param D
  */
 void CFCSS::createCFGVerificationBB (BasicBlock &BB,
                               const std::map<BasicBlock *, int> &BBSigs,
@@ -189,7 +185,8 @@ void CFCSS::createCFGVerificationBB (BasicBlock &BB,
 //no CFG for landingPad
   IRBuilder<> B(C);
 
-  if (isa<LandingPadInst>(BB.getFirstNonPHI())) 
+  
+  if (isa<LandingPadInst>(BB.getFirstNonPHIIt())) 
   {
     //if the BB start with a landing pad instruction don't create CFGVerificationBB
     B.SetInsertPoint(&*BB.getFirstInsertionPt());
